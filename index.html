@@ -1,0 +1,3284 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d0f17" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="KolaseKu" />
+  <meta name="description" content="Aplikasi PWA Foto Kolase Mobile-First dengan custom grid, layer bebas, atur crop & zoom out isi frame, auto-save dan kelola proyek." />
+  <title>KolaseKu Studio — PWA Foto Kolase</title>
+
+  <!-- Font Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif']
+          },
+          colors: {
+            studio: {
+              bg: '#0b0d14',
+              panel: '#121521',
+              card: '#1a1e2e',
+              border: '#272c40'
+            }
+          }
+        }
+      }
+    };
+  </script>
+
+  <style>
+    * {
+      -webkit-tap-highlight-color: transparent;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      overscroll-behavior: none;
+      background-color: #0b0d14;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    /* Pola papan catur untuk indikator transparansi */
+    .checkerboard {
+      background-color: #161925;
+      background-image:
+        linear-gradient(45deg, #23283b 25%, transparent 25%),
+        linear-gradient(-45deg, #23283b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #23283b 75%),
+        linear-gradient(-45deg, transparent 75%, #23283b 75%);
+      background-size: 16px 16px;
+      background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    }
+
+    /* Canvas sentuh tanpa memicu scroll / pull-to-refresh */
+    #collage-canvas {
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      display: block;
+    }
+
+    /* Scrollbar halus */
+    .studio-scroll::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    .studio-scroll::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .studio-scroll::-webkit-scrollbar-thumb {
+      background: #2e344d;
+      border-radius: 999px;
+    }
+
+    /* Range slider modern */
+    input[type="range"].studio-range {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      background: #252a3f;
+      border-radius: 999px;
+      outline: none;
+    }
+    input[type="range"].studio-range::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: #8b5cf6;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+      cursor: pointer;
+    }
+    input[type="range"].studio-range::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: #8b5cf6;
+      border: 2px solid #ffffff;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45);
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body class="h-[100dvh] w-full flex flex-col overflow-hidden bg-studio-bg text-gray-100 select-none">
+
+  <!-- Input file tersembunyi untuk tambah banyak foto & tukar foto -->
+  <input id="file-input-multi" type="file" accept="image/*" multiple class="hidden" />
+  <input id="file-input-replace" type="file" accept="image/*" class="hidden" />
+
+  <!-- ==================== HEADER TOP BAR ==================== -->
+  <header class="shrink-0 h-13 px-3 sm:px-4 py-2 bg-studio-panel/95 backdrop-blur border-b border-studio-border flex items-center justify-between gap-2 z-30">
+    <!-- Brand -->
+    <div class="flex items-center gap-2 min-w-0">
+      <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-fuchsia-500 flex items-center justify-center shadow-lg shadow-violet-500/25 shrink-0">
+        <svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <rect x="3" y="3" width="8" height="8" rx="1.8"/>
+          <rect x="13" y="3" width="8" height="5" rx="1.5"/>
+          <rect x="13" y="10" width="8" height="11" rx="1.8"/>
+          <rect x="3" y="13" width="8" height="8" rx="1.8"/>
+        </svg>
+      </div>
+      <div class="leading-tight truncate">
+        <h1 class="text-sm font-extrabold tracking-tight text-white truncate">KolaseKu</h1>
+        <p id="autosave-status" class="text-[10px] text-emerald-400/90 truncate max-w-[120px] sm:max-w-[200px]">Auto-save aktif</p>
+      </div>
+    </div>
+
+    <!-- Aksi Utama Header -->
+    <div class="flex items-center gap-1 sm:gap-2">
+      <!-- Undo / Redo -->
+      <div class="flex items-center bg-studio-card border border-studio-border rounded-xl p-0.5">
+        <button id="btn-undo" onclick="undo()" title="Urungkan (Undo)" disabled class="p-1.5 rounded-lg text-gray-300 hover:bg-studio-border disabled:opacity-35 active:scale-95 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+        </button>
+        <button id="btn-redo" onclick="redo()" title="Ulangi (Redo)" disabled class="p-1.5 rounded-lg text-gray-300 hover:bg-studio-border disabled:opacity-35 active:scale-95 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"/></svg>
+        </button>
+      </div>
+
+      <!-- Tombol Kelola Proyek & Reset -->
+      <button onclick="openProjectsModal()" title="Kelola Proyek & Proyek Baru" class="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-xs font-semibold text-gray-100 flex items-center gap-1.5 active:scale-95 transition">
+        <svg class="w-4 h-4 text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span class="hidden sm:inline">Proyek</span>
+      </button>
+
+      <!-- Tombol Tambah Foto -->
+      <button onclick="triggerUploadMulti()" title="Tambah Foto" class="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-xs font-semibold text-gray-100 flex items-center gap-1.5 active:scale-95 transition">
+        <svg class="w-4 h-4 text-violet-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span class="hidden sm:inline">Foto</span>
+      </button>
+
+      <!-- Tombol Install PWA -->
+      <button id="btn-install-pwa" onclick="handleInstallClick()" title="Install Aplikasi ke HP" class="p-2 sm:px-2.5 sm:py-1.5 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-xs font-semibold text-gray-200 flex items-center gap-1 active:scale-95 transition">
+        <svg class="w-4 h-4 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        <span class="hidden md:inline">Install</span>
+      </button>
+
+      <!-- Tombol Simpan / Ekspor -->
+      <button onclick="openExportModal()" class="px-3 sm:px-4 py-1.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-xs font-bold text-white shadow-lg shadow-violet-600/30 flex items-center gap-1.5 active:scale-95 transition">
+        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        <span>Simpan</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- ==================== AREA KERJA UTAMA ==================== -->
+  <main class="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
+
+    <!-- ==================== STAGE KANVAS ==================== -->
+    <section id="canvas-stage" class="relative flex-1 min-h-0 flex flex-col items-center justify-center p-3 sm:p-5 overflow-hidden bg-[radial-gradient(circle_at_center,#171b2b_0%,#0b0d14_75%)]">
+
+      <!-- Bar Mengambang Cepat (Muncul saat foto dipilih) -->
+      <div id="floating-action-bar" class="hidden absolute top-2.5 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1 px-2 py-1.5 rounded-2xl bg-studio-panel/95 backdrop-blur-md border border-studio-border shadow-2xl max-w-[95vw]">
+        <button id="fab-crop-btn" onclick="toggleCropMode()" class="px-2.5 py-1 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 text-cyan-200 text-[11px] font-bold flex items-center gap-1 active:scale-95 transition whitespace-nowrap">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M6 2v14a2 2 0 0 0 2 2h14"/><path d="M18 22V8a2 2 0 0 0-2-2H2"/></svg>
+          <span id="fab-crop-label">Geser Isi</span>
+        </button>
+        <button onclick="triggerReplaceSelectedPhoto()" title="Tukar Foto" class="px-2 py-1 rounded-xl bg-studio-card hover:bg-studio-border text-gray-200 text-[11px] font-semibold flex items-center gap-1 active:scale-95 transition whitespace-nowrap">
+          <svg class="w-3.5 h-3.5 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          <span class="hidden sm:inline">Tukar</span>
+        </button>
+        <button onclick="duplicateSelectedLayer()" title="Duplikat Layer" class="p-1.5 rounded-xl bg-studio-card hover:bg-studio-border text-gray-200 active:scale-95 transition">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+        </button>
+        <button onclick="deleteSelectedLayer()" title="Hapus Foto" class="p-1.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 active:scale-95 transition">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+        </button>
+      </div>
+
+      <!-- Indikator Mode Geser Isi Aktif -->
+      <div id="crop-mode-banner" class="hidden absolute bottom-2.5 left-1/2 -translate-x-1/2 z-20 px-3 py-1.5 rounded-full bg-cyan-950/90 border border-cyan-400/50 text-cyan-100 text-[11px] font-medium shadow-xl flex items-center gap-2 whitespace-nowrap">
+        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></span>
+        <span>Geser 1 jari / Pinch 2 jari isi foto</span>
+        <button onclick="exitCropMode()" class="ml-1 px-2 py-0.5 rounded-full bg-cyan-400 text-slate-950 font-bold text-[10px] active:scale-95">Selesai</button>
+      </div>
+
+      <!-- Pembungkus Kanvas -->
+      <div id="canvas-wrapper" class="relative rounded-2xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.65)] ring-1 ring-white/10 checkerboard flex items-center justify-center">
+        <canvas id="collage-canvas"></canvas>
+
+        <!-- Tampilan Kosong (Saat belum ada foto) -->
+        <div id="empty-state" class="absolute inset-0 flex flex-col items-center justify-center p-5 text-center bg-studio-bg/65 backdrop-blur-[2px]">
+          <div class="w-14 h-14 rounded-2xl bg-violet-500/20 border border-violet-400/30 flex items-center justify-center mb-3">
+            <svg class="w-7 h-7 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="3" width="18" height="18" rx="3"/>
+              <circle cx="8.5" cy="8.5" r="1.5"/>
+              <polyline points="21 15 16 10 5 21"/>
+            </svg>
+          </div>
+          <p class="text-sm font-bold text-white mb-1">Mulai Buat Kolase</p>
+          <p class="text-[11px] text-gray-300 max-w-[230px] mb-4">Upload beberapa foto lokal sekaligus, lalu atur bebas atau pilih grid rapi.</p>
+          <button onclick="triggerUploadMulti()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 text-white text-xs font-bold shadow-lg shadow-violet-600/35 active:scale-95 transition flex items-center gap-2">
+            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Upload Foto Lokal</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Info Ukuran Kanvas -->
+      <div id="canvas-dim-badge" class="mt-2 px-2.5 py-0.5 rounded-full bg-studio-panel/80 border border-studio-border text-[10px] font-medium text-gray-400">
+        1080 × 1080 px • 0 foto
+      </div>
+    </section>
+
+    <!-- ==================== PANEL KONTROL (BOTTOM SHEET MOBILE / SIDEBAR DESKTOP) ==================== -->
+    <aside class="shrink-0 w-full lg:w-[360px] h-[44dvh] sm:h-[42dvh] lg:h-full bg-studio-panel border-t lg:border-t-0 lg:border-l border-studio-border flex flex-col z-20">
+
+      <!-- Navigasi Tab -->
+      <nav class="shrink-0 grid grid-cols-5 border-b border-studio-border bg-studio-panel px-1 pt-1">
+        <button data-tab="canvas" onclick="switchTab('canvas')" class="tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-violet-500 text-violet-300 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/></svg>
+          <span>Kanvas</span>
+        </button>
+        <button data-tab="layout" onclick="switchTab('layout')" class="tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg>
+          <span>Layout</span>
+        </button>
+        <button data-tab="frame" onclick="switchTab('frame')" class="tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="3"/><rect x="7" y="7" width="10" height="10" rx="1"/></svg>
+          <span>Bingkai</span>
+        </button>
+        <button data-tab="edit" onclick="switchTab('edit')" class="tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.09a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Edit</span>
+        </button>
+        <button data-tab="layers" onclick="switchTab('layers')" class="tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+          <span>Layer</span>
+        </button>
+      </nav>
+
+      <!-- Konten Tab Scrollable -->
+      <div class="flex-1 overflow-y-auto studio-scroll p-3.5 space-y-4">
+
+        <!-- ========== TAB 1: KANVAS & UKURAN ========== -->
+        <div id="panel-canvas" class="tab-panel space-y-4">
+          <!-- Preset Rasio -->
+          <div>
+            <label class="block text-xs font-semibold text-gray-200 mb-2">Rasio & Ukuran Preset</label>
+            <div id="ratio-presets" class="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-3 gap-1.5"></div>
+          </div>
+
+          <!-- Ukuran Pixel Custom -->
+          <div class="p-3 rounded-2xl bg-studio-card/70 border border-studio-border space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-gray-200">Ukuran Kanvas Custom (px)</span>
+              <span class="text-[10px] text-gray-400">300 – 4096 px</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <div class="flex-1">
+                <label class="block text-[10px] text-gray-400 mb-1">Lebar (W)</label>
+                <input id="input-canvas-w" type="number" min="300" max="4096" value="1080" class="w-full px-2.5 py-1.5 rounded-xl bg-studio-bg border border-studio-border text-xs font-semibold text-white outline-none focus:border-violet-500" />
+              </div>
+              <span class="text-gray-500 font-bold pt-4">×</span>
+              <div class="flex-1">
+                <label class="block text-[10px] text-gray-400 mb-1">Tinggi (H)</label>
+                <input id="input-canvas-h" type="number" min="300" max="4096" value="1080" class="w-full px-2.5 py-1.5 rounded-xl bg-studio-bg border border-studio-border text-xs font-semibold text-white outline-none focus:border-violet-500" />
+              </div>
+              <button onclick="applyCustomCanvasSize()" class="mt-4 px-3 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-xs font-bold text-white active:scale-95 transition">
+                Terapkan
+              </button>
+            </div>
+          </div>
+
+          <!-- Latar Belakang Kanvas -->
+          <div class="space-y-2.5">
+            <div class="flex items-center justify-between">
+              <label class="text-xs font-semibold text-gray-200">Latar Belakang Kanvas</label>
+              <button id="btn-canvas-bg-trans" onclick="setCanvasBg('transparent')" class="px-2 py-0.5 rounded-lg border border-studio-border bg-studio-card text-[10px] font-semibold text-gray-300 active:scale-95 transition">
+                Transparan
+              </button>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <input id="input-canvas-bg-color" type="color" value="#141622" title="Pilih Warna Kanvas" class="w-8 h-8 rounded-xl border border-studio-border bg-transparent cursor-pointer shrink-0" />
+              <div id="solid-bg-swatches" class="flex items-center gap-1.5 flex-wrap"></div>
+            </div>
+            <div>
+              <span class="block text-[10px] text-gray-400 mb-1.5">Gradien</span>
+              <div id="gradient-bg-swatches" class="grid grid-cols-5 gap-1.5"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== TAB 2: TEMPLATE LAYOUT ========== -->
+        <div id="panel-layout" class="tab-panel hidden space-y-4">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <label class="text-xs font-semibold text-gray-200">Template Auto-Arrange</label>
+              <span class="text-[10px] text-gray-400">Tetap bebas digeser</span>
+            </div>
+            <div id="layout-grid" class="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-3 gap-2"></div>
+          </div>
+
+          <!-- Pengaturan Custom Grid (Kolom x Baris) untuk Grid Simetris & Rapi Proporsi -->
+          <div id="custom-grid-controls" class="hidden p-3 rounded-2xl bg-violet-950/30 border border-violet-500/35 space-y-2.5">
+            <div class="flex items-center justify-between gap-2">
+              <div>
+                <p id="custom-grid-title" class="text-xs font-bold text-violet-200">Atur Custom Grid</p>
+                <p id="custom-grid-desc" class="text-[10px] text-gray-400">Susunan rapi simetris sesuai kolom & baris</p>
+              </div>
+              <button onclick="autoCustomGrid()" class="px-2.5 py-1 rounded-lg bg-violet-600/30 hover:bg-violet-600/50 border border-violet-400/40 text-violet-200 text-[10px] font-semibold active:scale-95 transition shrink-0">
+                Auto Pas
+              </button>
+            </div>
+            <div class="grid grid-cols-2 gap-2.5">
+              <!-- Input Kolom -->
+              <div class="bg-studio-bg/80 border border-studio-border rounded-xl p-2">
+                <span class="block text-[10px] text-gray-400 mb-1 text-center">Kolom (Kiri-Kanan)</span>
+                <div class="flex items-center justify-between gap-1">
+                  <button onclick="stepCustomGrid('cols', -1)" class="w-7 h-7 rounded-lg bg-studio-card hover:bg-studio-border text-white font-bold text-sm flex items-center justify-center active:scale-90 transition">−</button>
+                  <input id="input-grid-cols" type="number" min="1" max="10" value="2" class="w-10 text-center bg-transparent text-xs font-bold text-white outline-none" />
+                  <button onclick="stepCustomGrid('cols', 1)" class="w-7 h-7 rounded-lg bg-studio-card hover:bg-studio-border text-white font-bold text-sm flex items-center justify-center active:scale-90 transition">+</button>
+                </div>
+              </div>
+              <!-- Input Baris -->
+              <div class="bg-studio-bg/80 border border-studio-border rounded-xl p-2">
+                <span class="block text-[10px] text-gray-400 mb-1 text-center">Baris (Atas-Bawah)</span>
+                <div class="flex items-center justify-between gap-1">
+                  <button onclick="stepCustomGrid('rows', -1)" class="w-7 h-7 rounded-lg bg-studio-card hover:bg-studio-border text-white font-bold text-sm flex items-center justify-center active:scale-90 transition">−</button>
+                  <input id="input-grid-rows" type="number" min="1" max="10" value="2" class="w-10 text-center bg-transparent text-xs font-bold text-white outline-none" />
+                  <button onclick="stepCustomGrid('rows', 1)" class="w-7 h-7 rounded-lg bg-studio-card hover:bg-studio-border text-white font-bold text-sm flex items-center justify-center active:scale-90 transition">+</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Slider Jarak, Margin, Sudut Global -->
+          <div class="space-y-3 pt-2 border-t border-studio-border">
+            <div>
+              <div class="flex justify-between text-[11px] mb-1">
+                <span class="text-gray-300">Jarak Antar Foto (Gap)</span>
+                <span id="val-gap" class="text-violet-300 font-semibold">16 px</span>
+              </div>
+              <input id="slider-gap" type="range" min="0" max="80" value="16" class="w-full studio-range" />
+            </div>
+            <div>
+              <div class="flex justify-between text-[11px] mb-1">
+                <span class="text-gray-300">Margin Tepi Kanvas</span>
+                <span id="val-padding" class="text-violet-300 font-semibold">24 px</span>
+              </div>
+              <input id="slider-padding" type="range" min="0" max="120" value="24" class="w-full studio-range" />
+            </div>
+            <div>
+              <div class="flex justify-between text-[11px] mb-1">
+                <span class="text-gray-300">Sudut Melengkung Semua Foto</span>
+                <span id="val-global-radius" class="text-violet-300 font-semibold">16 px</span>
+              </div>
+              <input id="slider-global-radius" type="range" min="0" max="120" value="16" class="w-full studio-range" />
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== TAB 3: BINGKAI DEKORATIF ========== -->
+        <div id="panel-frame" class="tab-panel hidden space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-200 mb-2">Template Bingkai Overlay</label>
+            <div id="frame-grid" class="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-2 gap-2"></div>
+          </div>
+
+          <div class="p-3 rounded-2xl bg-studio-card/70 border border-studio-border space-y-2.5">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-gray-200">Warna Aksen Bingkai</span>
+              <input id="input-frame-accent" type="color" value="#ffffff" class="w-8 h-8 rounded-lg border border-studio-border bg-transparent cursor-pointer" />
+            </div>
+            <div>
+              <label class="block text-[11px] text-gray-400 mb-1">Teks Caption Bingkai (Polaroid / Film)</label>
+              <input id="input-frame-caption" type="text" maxlength="40" placeholder="Misal: Liburan 2026 ✨" class="w-full px-3 py-2 rounded-xl bg-studio-bg border border-studio-border text-xs text-white outline-none focus:border-violet-500" />
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== TAB 4: EDIT FOTO TERPILIH ========== -->
+        <div id="panel-edit" class="tab-panel hidden space-y-4">
+          <div id="edit-no-selection" class="py-8 text-center text-gray-400 text-xs">
+            Ketuk salah satu foto di kanvas untuk mengedit posisi isi, zoom, filter, atau sudutnya.
+          </div>
+
+          <div id="edit-controls" class="hidden space-y-4">
+            <!-- KARTU ATUR ISI FOTO (CROP / PAN / ZOOM OUT / FRAME BG) -->
+            <div class="p-3 rounded-2xl bg-cyan-950/30 border border-cyan-500/35 space-y-3">
+              <div class="flex items-center justify-between gap-2">
+                <div>
+                  <p class="text-xs font-bold text-cyan-200">Atur Isi Foto (Crop & Zoom)</p>
+                  <p class="text-[10px] text-gray-400">Geser atau zoom in/out tanpa mengubah bingkai</p>
+                </div>
+                <button id="btn-toggle-crop-mode" onclick="toggleCropMode()" class="px-2.5 py-1.5 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-[11px] font-bold active:scale-95 transition shrink-0">
+                  Geser Isi
+                </button>
+              </div>
+
+              <!-- Slider Zoom Isi Foto -->
+              <div>
+                <div class="flex items-center justify-between text-[11px] mb-1">
+                  <span class="text-gray-300">Zoom Isi (In / Out)</span>
+                  <div class="flex items-center gap-2">
+                    <button onclick="fitSelectedImageInFrame()" title="Zoom out pas agar seluruh foto terlihat utuh" class="px-2 py-0.5 rounded-md bg-studio-card hover:bg-cyan-500/20 border border-studio-border text-[10px] font-semibold text-cyan-300 active:scale-95 transition">
+                      Fit Utuh
+                    </button>
+                    <span id="val-img-zoom" class="text-cyan-300 font-semibold">100%</span>
+                  </div>
+                </div>
+                <input id="slider-img-zoom" type="range" min="20" max="350" value="100" class="w-full studio-range" />
+              </div>
+
+              <!-- Tombol Geser Presisi (D-Pad) + Reset Posisi -->
+              <div class="flex items-center justify-between gap-2">
+                <div class="grid grid-cols-4 gap-1.5 flex-1">
+                  <button onclick="nudgeCrop(-28, 0)" title="Geser Isi ke Kiri" class="py-2 rounded-xl bg-studio-card hover:bg-cyan-500/20 border border-studio-border text-cyan-200 flex items-center justify-center active:scale-90 transition">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><polyline points="15 18 9 12 15 6"/></svg>
+                  </button>
+                  <button onclick="nudgeCrop(28, 0)" title="Geser Isi ke Kanan" class="py-2 rounded-xl bg-studio-card hover:bg-cyan-500/20 border border-studio-border text-cyan-200 flex items-center justify-center active:scale-90 transition">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><polyline points="9 18 15 12 9 6"/></svg>
+                  </button>
+                  <button onclick="nudgeCrop(0, -28)" title="Geser Isi ke Atas" class="py-2 rounded-xl bg-studio-card hover:bg-cyan-500/20 border border-studio-border text-cyan-200 flex items-center justify-center active:scale-90 transition">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><polyline points="18 15 12 9 6 15"/></svg>
+                  </button>
+                  <button onclick="nudgeCrop(0, 28)" title="Geser Isi ke Bawah" class="py-2 rounded-xl bg-studio-card hover:bg-cyan-500/20 border border-studio-border text-cyan-200 flex items-center justify-center active:scale-90 transition">
+                    <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><polyline points="6 9 12 15 18 9"/></svg>
+                  </button>
+                </div>
+                <button onclick="resetSelectedCrop()" class="px-3 py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-[11px] font-semibold text-gray-200 active:scale-95 transition shrink-0">
+                  Reset
+                </button>
+              </div>
+
+              <!-- Warna Latar Isi Frame (Saat Zoom Out) -->
+              <div class="pt-2.5 border-t border-cyan-500/20 space-y-2">
+                <div class="flex items-center justify-between gap-2">
+                  <span class="text-[11px] font-medium text-gray-300">Latar Belakang Frame</span>
+                  <button onclick="applyFrameBgToAll()" class="text-[10px] font-semibold text-cyan-300 hover:underline active:scale-95 transition">
+                    Terapkan ke Semua
+                  </button>
+                </div>
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <!-- Pilihan Transparan (No BG Color) -->
+                  <button id="btn-frame-bg-transparent" onclick="setSelectedFrameBg('transparent')" title="Transparan (Tanpa Warna Latar)" class="h-7 px-2 rounded-lg border border-studio-border bg-studio-card text-[10px] font-semibold text-gray-200 flex items-center gap-1 active:scale-95 transition">
+                    <span class="w-3.5 h-3.5 rounded-sm border border-white/20 inline-block" style="background-image: linear-gradient(45deg, #64748b 25%, transparent 25%), linear-gradient(-45deg, #64748b 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #64748b 75%), linear-gradient(-45deg, transparent 75%, #64748b 75%); background-size: 6px 6px; background-position: 0 0, 0 3px, 3px -3px, -3px 0px;"></span>
+                    <span>Transparan</span>
+                  </button>
+                  <!-- Color Picker Bebas -->
+                  <input id="input-frame-bg-color" type="color" value="#ffffff" title="Pilih Warna Custom" class="w-7 h-7 rounded-lg border border-studio-border bg-transparent cursor-pointer shrink-0" />
+                  <!-- Swatch Warna Cepat -->
+                  <div id="frame-bg-swatches" class="flex items-center gap-1.5 flex-wrap"></div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Aksi Cepat Transformasi -->
+            <div class="grid grid-cols-4 gap-1.5">
+              <button onclick="flipSelected('h')" class="py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-[10px] font-semibold text-gray-200 active:scale-95 transition">Flip H</button>
+              <button onclick="flipSelected('v')" class="py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-[10px] font-semibold text-gray-200 active:scale-95 transition">Flip V</button>
+              <button onclick="rotateSelected90()" class="py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-[10px] font-semibold text-gray-200 active:scale-95 transition">Putar 90°</button>
+              <button onclick="centerSelected()" class="py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-[10px] font-semibold text-gray-200 active:scale-95 transition">Tengah</button>
+            </div>
+
+            <!-- Slider Transformasi Kotak Layer -->
+            <div class="space-y-3">
+              <div>
+                <div class="flex justify-between text-[11px] mb-1">
+                  <span class="text-gray-300">Ukuran Kotak (Scale)</span>
+                  <span id="val-scale" class="text-violet-300 font-semibold">100%</span>
+                </div>
+                <input id="slider-scale" type="range" min="15" max="300" value="100" class="w-full studio-range" />
+              </div>
+              <div>
+                <div class="flex justify-between text-[11px] mb-1">
+                  <span class="text-gray-300">Rotasi</span>
+                  <span id="val-rotation" class="text-violet-300 font-semibold">0°</span>
+                </div>
+                <input id="slider-rotation" type="range" min="-180" max="180" value="0" class="w-full studio-range" />
+              </div>
+              <div>
+                <div class="flex justify-between text-[11px] mb-1">
+                  <span class="text-gray-300">Opasitas</span>
+                  <span id="val-opacity" class="text-violet-300 font-semibold">100%</span>
+                </div>
+                <input id="slider-opacity" type="range" min="10" max="100" value="100" class="w-full studio-range" />
+              </div>
+              <div>
+                <div class="flex justify-between text-[11px] mb-1">
+                  <span class="text-gray-300">Sudut Melengkung</span>
+                  <span id="val-radius" class="text-violet-300 font-semibold">16 px</span>
+                </div>
+                <input id="slider-radius" type="range" min="0" max="150" value="16" class="w-full studio-range" />
+              </div>
+              <div>
+                <div class="flex justify-between text-[11px] mb-1">
+                  <span class="text-gray-300">Bayangan (Shadow)</span>
+                  <span id="val-shadow" class="text-violet-300 font-semibold">18</span>
+                </div>
+                <input id="slider-shadow" type="range" min="0" max="60" value="18" class="w-full studio-range" />
+              </div>
+            </div>
+
+            <!-- Filter Warna -->
+            <div>
+              <label class="block text-xs font-semibold text-gray-200 mb-2">Filter Warna</label>
+              <div id="filter-grid" class="grid grid-cols-4 gap-1.5"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ========== TAB 5: MANAJEMEN LAYER ========== -->
+        <div id="panel-layers" class="tab-panel hidden space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-gray-200">Urutan Layer (Atas = Paling Depan)</span>
+            <button onclick="triggerUploadMulti()" class="px-2.5 py-1 rounded-lg bg-violet-600/25 border border-violet-500/40 text-violet-200 text-[11px] font-semibold active:scale-95 transition">
+              + Tambah Foto
+            </button>
+          </div>
+          <div id="layers-list" class="space-y-2"></div>
+        </div>
+
+      </div>
+    </aside>
+  </main>
+
+  <!-- ==================== MODAL EKSPOR ==================== -->
+  <div id="export-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-md rounded-3xl bg-studio-panel border border-studio-border p-5 space-y-4 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-bold text-white">Simpan Kolase Resolusi Penuh</h2>
+          <p id="export-dim-info" class="text-[11px] text-gray-400">1080 × 1080 px</p>
+        </div>
+        <button onclick="closeExportModal()" class="p-1.5 rounded-xl bg-studio-card hover:bg-studio-border text-gray-300">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Pratinjau Hasil -->
+      <div class="rounded-2xl overflow-hidden bg-studio-bg border border-studio-border checkerboard flex items-center justify-center max-h-56 p-2">
+        <img id="export-preview-img" alt="Pratinjau Ekspor" class="max-h-52 max-w-full object-contain rounded-lg shadow-lg" />
+      </div>
+
+      <!-- Format & Kualitas -->
+      <div class="grid grid-cols-2 gap-2">
+        <button id="fmt-png" onclick="setExportFormat('png')" class="py-2 rounded-xl border border-violet-500 bg-violet-600/20 text-xs font-bold text-white transition">PNG (Transparan OK)</button>
+        <button id="fmt-jpeg" onclick="setExportFormat('jpeg')" class="py-2 rounded-xl border border-studio-border bg-studio-card text-xs font-bold text-gray-300 transition">JPG (Ukuran Ringan)</button>
+      </div>
+
+      <div id="export-quality-wrap" class="hidden">
+        <div class="flex justify-between text-[11px] mb-1">
+          <span class="text-gray-300">Kualitas JPG</span>
+          <span id="val-export-quality" class="text-violet-300 font-semibold">92%</span>
+        </div>
+        <input id="slider-export-quality" type="range" min="50" max="100" value="92" class="w-full studio-range" />
+      </div>
+
+      <!-- Tombol Unduh & Bagikan -->
+      <div class="flex items-center gap-2 pt-1">
+        <button onclick="downloadExportedImage()" class="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-xs font-bold text-white shadow-lg active:scale-95 transition">
+          Unduh Gambar
+        </button>
+        <button id="btn-share-export" onclick="shareExportedImage()" class="px-4 py-2.5 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-xs font-bold text-gray-100 active:scale-95 transition">
+          Bagikan
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL PANDUAN INSTALL PWA ==================== -->
+  <div id="pwa-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-sm rounded-3xl bg-studio-panel border border-studio-border p-5 space-y-3.5 shadow-2xl">
+      <div class="flex items-center justify-between">
+        <h2 class="text-sm font-bold text-white">Install KolaseKu di HP</h2>
+        <button onclick="document.getElementById('pwa-modal').classList.add('hidden')" class="p-1.5 rounded-xl bg-studio-card text-gray-300">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="space-y-2.5 text-xs text-gray-300 leading-relaxed">
+        <div class="p-3 rounded-2xl bg-studio-card border border-studio-border">
+          <p class="font-bold text-emerald-300 mb-1">Android (Chrome / Edge)</p>
+          <p>Ketuk ikon <strong>⋮ (titik tiga)</strong> di kanan atas browser, lalu pilih <strong>Tambahkan ke Layar Utama / Install Aplikasi</strong>.</p>
+        </div>
+        <div class="p-3 rounded-2xl bg-studio-card border border-studio-border">
+          <p class="font-bold text-sky-300 mb-1">iPhone / iPad (Safari)</p>
+          <p>Ketuk tombol <strong>Bagikan (ikon panah ke atas)</strong> di bawah layar, lalu gulir dan pilih <strong>Tambahkan ke Layar Utama (Add to Home Screen)</strong>.</p>
+        </div>
+      </div>
+      <button onclick="document.getElementById('pwa-modal').classList.add('hidden')" class="w-full py-2.5 rounded-xl bg-violet-600 text-xs font-bold text-white active:scale-95 transition">Mengerti</button>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL KELOLA PROYEK & PROYEK BARU ==================== -->
+  <div id="projects-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="w-full sm:max-w-lg max-h-[88dvh] rounded-t-3xl sm:rounded-3xl bg-studio-panel border border-studio-border flex flex-col shadow-2xl overflow-hidden">
+      <!-- Header Modal -->
+      <div class="shrink-0 px-5 py-4 border-b border-studio-border flex items-center justify-between">
+        <div>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Kelola Proyek</span>
+            <span id="projects-count-badge" class="px-2 py-0.5 rounded-full bg-violet-600/25 border border-violet-500/40 text-[10px] font-bold text-violet-200">0</span>
+          </h2>
+          <p class="text-[11px] text-gray-400">Auto-save lokal aktif • Tersimpan aman di perangkat ini</p>
+        </div>
+        <button onclick="closeProjectsModal()" class="p-1.5 rounded-xl bg-studio-card hover:bg-studio-border text-gray-300 active:scale-95 transition">
+          <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Isi Modal Scrollable -->
+      <div class="flex-1 overflow-y-auto studio-scroll p-4 sm:p-5 space-y-4">
+        <!-- Kartu Proyek Aktif Saat Ini -->
+        <div class="p-3.5 rounded-2xl bg-violet-950/30 border border-violet-500/35 space-y-3">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-xs font-bold text-violet-200">Proyek Sedang Diedit</span>
+            <span id="active-project-badge" class="px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/30 text-[10px] font-semibold text-amber-200">Draft Auto-Save</span>
+          </div>
+          <div>
+            <label class="block text-[10px] text-gray-400 mb-1">Nama Proyek</label>
+            <input id="input-project-name" type="text" maxlength="45" placeholder="Misal: Kolase Liburan Bali" class="w-full px-3 py-2 rounded-xl bg-studio-bg border border-studio-border text-xs font-semibold text-white outline-none focus:border-violet-500" />
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <button onclick="saveCurrentProject(false)" class="py-2.5 px-3 rounded-xl bg-gradient-to-r from-violet-600 to-fuchsia-600 hover:from-violet-500 hover:to-fuchsia-500 text-xs font-bold text-white shadow-md flex items-center justify-center gap-1.5 active:scale-95 transition">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+              <span id="btn-save-project-label">Simpan Proyek</span>
+            </button>
+            <button onclick="confirmNewProject()" class="py-2.5 px-3 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/35 text-xs font-bold text-rose-200 flex items-center justify-center gap-1.5 active:scale-95 transition">
+              <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+              <span>Proyek Baru</span>
+            </button>
+          </div>
+          <button id="btn-save-as-new" onclick="saveCurrentProject(true)" class="hidden w-full py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-[11px] font-semibold text-gray-200 active:scale-95 transition">
+            Simpan Sebagai Salinan Proyek Baru
+          </button>
+        </div>
+
+        <!-- Daftar Proyek Tersimpan -->
+        <div class="space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 class="text-xs font-bold text-gray-200">Proyek Tersimpan di Perangkat</h3>
+            <span class="text-[10px] text-gray-400">Ketuk Buka untuk lanjut edit</span>
+          </div>
+          <div id="projects-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2.5"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MODAL DIALOG KONFIRMASI / INPUT CUSTOM ==================== -->
+  <div id="app-dialog-modal" class="hidden fixed inset-0 z-[60] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="w-full max-w-sm rounded-3xl bg-studio-panel border border-studio-border p-5 space-y-4 shadow-2xl">
+      <div class="space-y-1">
+        <h3 id="app-dialog-title" class="text-sm font-bold text-white">Konfirmasi</h3>
+        <p id="app-dialog-message" class="text-xs text-gray-300 leading-relaxed"></p>
+      </div>
+      <input id="app-dialog-input" type="text" maxlength="45" class="hidden w-full px-3 py-2 rounded-xl bg-studio-bg border border-studio-border text-xs font-semibold text-white outline-none focus:border-violet-500" />
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <button id="app-dialog-cancel" class="px-4 py-2 rounded-xl bg-studio-card hover:bg-studio-border border border-studio-border text-xs font-semibold text-gray-200 active:scale-95 transition">Batal</button>
+        <button id="app-dialog-confirm" class="px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-xs font-bold text-white active:scale-95 transition">Ya, Lanjutkan</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TOAST NOTIFICATION ==================== -->
+  <div id="toast-box" class="pointer-events-none fixed bottom-20 lg:bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-full bg-gray-900/95 border border-violet-500/40 text-xs font-medium text-white shadow-2xl opacity-0 translate-y-2 transition-all duration-200 max-w-[90vw] text-center"></div>
+
+  <!-- ==================== LOGIKA APLIKASI ==================== -->
+  <script>
+    // -------------------- 1. SETUP PWA (MANIFEST & ICON SVG) --------------------
+    (function setupPWA() {
+      try {
+        const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#8b5cf6"/><stop offset="100%" stop-color="#ec4899"/></linearGradient></defs><rect width="512" height="512" rx="112" fill="url(#g)"/><rect x="88" y="88" width="152" height="152" rx="28" fill="#ffffff" fill-opacity="0.95"/><rect x="272" y="88" width="152" height="104" rx="24" fill="#ffffff" fill-opacity="0.82"/><rect x="272" y="220" width="152" height="204" rx="28" fill="#ffffff" fill-opacity="0.95"/><rect x="88" y="272" width="152" height="152" rx="28" fill="#ffffff" fill-opacity="0.82"/></svg>`;
+        const iconBlob = new Blob([iconSvg], { type: 'image/svg+xml' });
+        const iconUrl = URL.createObjectURL(iconBlob);
+
+        const manifest = {
+          name: 'KolaseKu Studio',
+          short_name: 'KolaseKu',
+          description: 'Aplikasi PWA Foto Kolase Mobile-First',
+          start_url: '.',
+          display: 'standalone',
+          background_color: '#0b0d14',
+          theme_color: '#0b0d14',
+          icons: [{ src: iconUrl, sizes: '512x512', type: 'image/svg+xml', purpose: 'any maskable' }]
+        };
+        const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+        const link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = URL.createObjectURL(manifestBlob);
+        document.head.appendChild(link);
+      } catch (err) {
+        console.warn('PWA manifest setup skipped:', err);
+      }
+    })();
+
+    let deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+    });
+
+    async function handleInstallClick() {
+      if (deferredPrompt) {
+        try {
+          deferredPrompt.prompt();
+          const { outcome } = await deferredPrompt.userChoice;
+          if (outcome === 'accepted') showToast('Aplikasi berhasil diinstall!');
+          deferredPrompt = null;
+        } catch (err) {
+          document.getElementById('pwa-modal').classList.remove('hidden');
+        }
+      } else {
+        document.getElementById('pwa-modal').classList.remove('hidden');
+      }
+    }
+
+    // -------------------- 2. KONSTANTA & PRESET --------------------
+    const RATIO_PRESETS = [
+      { id: '1:1', name: '1:1', desc: 'Feed IG', w: 1080, h: 1080 },
+      { id: '4:5', name: '4:5', desc: 'Portrait', w: 1080, h: 1350 },
+      { id: '9:16', name: '9:16', desc: 'Story', w: 1080, h: 1920 },
+      { id: '16:9', name: '16:9', desc: 'Wide', w: 1920, h: 1080 },
+      { id: '3:4', name: '3:4', desc: 'Poster', w: 1200, h: 1600 },
+      { id: '4:3', name: '4:3', desc: 'Klasik', w: 1600, h: 1200 }
+    ];
+
+    const SOLID_SWATCHES = ['#141622', '#ffffff', '#000000', '#f8f5f0', '#fce7f3', '#e0f2fe', '#dcfce7', '#fef3c7', '#1e1b4b', '#312e81'];
+
+    const FRAME_BG_SWATCHES = ['#ffffff', '#000000', '#f8f5f0', '#141622', '#fce7f3', '#e0f2fe'];
+
+    const GRADIENT_PRESETS = [
+      { id: 'g1', colors: ['#1e1b4b', '#701a75'] },
+      { id: 'g2', colors: ['#0f172a', '#0284c7'] },
+      { id: 'g3', colors: ['#ec4899', '#f59e0b'] },
+      { id: 'g4', colors: ['#10b981', '#3b82f6'] },
+      { id: 'g5', colors: ['#fdf2f8', '#dbeafe'] }
+    ];
+
+    const LAYOUT_TEMPLATES = [
+      { id: 'freeform', name: 'Bebas', slots: null },
+      { id: 'custom-grid', name: 'Grid Simetris', slots: 'custom-grid' },
+      { id: 'proportional-grid', name: 'Rapi Proporsi', slots: 'proportional-grid' },
+      { id: '2-h', name: '2 Kiri-Kanan', slots: [
+        { x: 0, y: 0, w: 0.5, h: 1 }, { x: 0.5, y: 0, w: 0.5, h: 1 }
+      ]},
+      { id: '2-v', name: '2 Atas-Bawah', slots: [
+        { x: 0, y: 0, w: 1, h: 0.5 }, { x: 0, y: 0.5, w: 1, h: 0.5 }
+      ]},
+      { id: '3-bento', name: '3 Bento', slots: [
+        { x: 0, y: 0, w: 0.55, h: 1 },
+        { x: 0.55, y: 0, w: 0.45, h: 0.5 },
+        { x: 0.55, y: 0.5, w: 0.45, h: 0.5 }
+      ]},
+      { id: '4-grid', name: '4 Grid 2×2', slots: [
+        { x: 0, y: 0, w: 0.5, h: 0.5 }, { x: 0.5, y: 0, w: 0.5, h: 0.5 },
+        { x: 0, y: 0.5, w: 0.5, h: 0.5 }, { x: 0.5, y: 0.5, w: 0.5, h: 0.5 }
+      ]},
+      { id: '6-grid', name: '6 Grid 3×2', slots: [
+        { x: 0, y: 0, w: 1/3, h: 0.5 }, { x: 1/3, y: 0, w: 1/3, h: 0.5 }, { x: 2/3, y: 0, w: 1/3, h: 0.5 },
+        { x: 0, y: 0.5, w: 1/3, h: 0.5 }, { x: 1/3, y: 0.5, w: 1/3, h: 0.5 }, { x: 2/3, y: 0.5, w: 1/3, h: 0.5 }
+      ]},
+      { id: 'scrapbook', name: 'Scrapbook', slots: 'scrapbook' }
+    ];
+
+    const FRAME_PRESETS = [
+      { id: 'none', name: 'Tanpa Bingkai' },
+      { id: 'polaroid', name: 'Polaroid' },
+      { id: 'film', name: 'Film Strip' },
+      { id: 'minimal', name: 'Bingkai Tipis' },
+      { id: 'neon', name: 'Neon Glow' },
+      { id: 'vintage', name: 'Vintage Klasik' }
+    ];
+
+    const FILTER_PRESETS = [
+      { id: 'none', name: 'Normal', css: 'none' },
+      { id: 'vivid', name: 'Vivid', css: 'saturate(1.38) contrast(1.08)' },
+      { id: 'warm', name: 'Hangat', css: 'sepia(0.28) saturate(1.25) brightness(1.03)' },
+      { id: 'cool', name: 'Dingin', css: 'hue-rotate(15deg) saturate(1.1) brightness(1.02)' },
+      { id: 'bw', name: 'Hitam Putih', css: 'grayscale(1) contrast(1.15)' },
+      { id: 'sepia', name: 'Sepia', css: 'sepia(0.85) contrast(1.05)' },
+      { id: 'vintage', name: 'Retro', css: 'sepia(0.35) contrast(0.92) brightness(1.06) saturate(0.85)' },
+      { id: 'drama', name: 'Dramatis', css: 'contrast(1.32) saturate(0.85) brightness(0.95)' }
+    ];
+
+    // -------------------- 3. STATE APLIKASI --------------------
+    // imageRegistry menyimpan: imgId -> { img: HTMLImageElement, blob: Blob, url: string, name: string }
+    const imageRegistry = new Map();
+    let nextImgId = 1;
+    let nextLayerId = 1;
+    let replaceTargetLayerId = null;
+
+    function createDefaultCanvasState() {
+      return {
+        width: 1080,
+        height: 1080,
+        bgType: 'solid', // 'solid' | 'gradient' | 'transparent'
+        bgColor: '#141622',
+        bgGradient: ['#1e1b4b', '#701a75'],
+        frameId: 'none',
+        frameAccent: '#ffffff',
+        frameCaption: '',
+        gap: 16,
+        padding: 24,
+        globalRadius: 16,
+        activeLayout: 'freeform',
+        gridCols: 2,
+        gridRows: 2
+      };
+    }
+
+    const state = {
+      canvas: createDefaultCanvasState(),
+      layers: [],
+      selectedId: null,
+      cropMode: false,
+      exportFormat: 'png',
+      exportQuality: 0.92,
+      projectId: null,
+      projectName: 'Kolase Tanpa Judul'
+    };
+
+    // Referensi Elemen Kanvas & Stage
+    const canvasEl = document.getElementById('collage-canvas');
+    const ctx = canvasEl.getContext('2d');
+    const stageEl = document.getElementById('canvas-stage');
+    const wrapperEl = document.getElementById('canvas-wrapper');
+    let displayScale = 1;
+    let snapLines = { x: false, y: false };
+
+    // -------------------- 4. RIWAYAT UNDO/REDO & HELPER --------------------
+    const history = {
+      stack: [],
+      index: -1,
+      max: 35
+    };
+
+    let toastTimer = null;
+    function showToast(msg) {
+      const box = document.getElementById('toast-box');
+      if (!box) return;
+      box.textContent = msg;
+      box.classList.remove('opacity-0', 'translate-y-2');
+      box.classList.add('opacity-100', 'translate-y-0');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        box.classList.remove('opacity-100', 'translate-y-0');
+        box.classList.add('opacity-0', 'translate-y-2');
+      }, 2400);
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function getSelectedLayer() {
+      return state.layers.find(l => l.id === state.selectedId) || null;
+    }
+
+    function getLayerBaseDims(layer) {
+      return {
+        baseW: layer.clipW != null ? layer.clipW : layer.baseW,
+        baseH: layer.clipH != null ? layer.clipH : layer.baseH
+      };
+    }
+
+    function getLayerDims(layer) {
+      const { baseW, baseH } = getLayerBaseDims(layer);
+      return {
+        w: Math.max(20, baseW * layer.scale),
+        h: Math.max(20, baseH * layer.scale)
+      };
+    }
+
+    function getCoverMetrics(img, boxW, boxH) {
+      const imgAspect = img.naturalWidth / Math.max(1, img.naturalHeight);
+      const boxAspect = boxW / Math.max(1, boxH);
+      let coverW, coverH;
+      if (imgAspect > boxAspect) {
+        coverH = boxH;
+        coverW = boxH * imgAspect;
+      } else {
+        coverW = boxW;
+        coverH = boxW / imgAspect;
+      }
+      return { coverW, coverH, imgAspect, boxAspect };
+    }
+
+    function clampCropOffset(layer) {
+      const entry = imageRegistry.get(layer.imgId);
+      if (!entry || !entry.img) return;
+      const { baseW, baseH } = getLayerBaseDims(layer);
+      const { coverW, coverH } = getCoverMetrics(entry.img, baseW, baseH);
+      const zoom = layer.imgZoom != null ? layer.imgZoom : 1;
+      const drawW = coverW * zoom;
+      const drawH = coverH * zoom;
+      // Mendukung baik zoom-in (mengisi penuh) maupun zoom-out (bebas digeser di dalam frame)
+      const maxX = Math.abs(drawW - baseW) / 2;
+      const maxY = Math.abs(drawH - baseH) / 2;
+      layer.imgOffsetX = Math.max(-maxX, Math.min(maxX, layer.imgOffsetX || 0));
+      layer.imgOffsetY = Math.max(-maxY, Math.min(maxY, layer.imgOffsetY || 0));
+    }
+
+    function cloneStateSnapshot() {
+      return JSON.stringify({
+        canvas: state.canvas,
+        layers: state.layers,
+        selectedId: state.selectedId
+      });
+    }
+
+    function saveHistory(triggerAutoSave = true) {
+      const snap = cloneStateSnapshot();
+      if (history.index >= 0 && history.stack[history.index] === snap) return;
+      history.stack = history.stack.slice(0, history.index + 1);
+      history.stack.push(snap);
+      if (history.stack.length > history.max) history.stack.shift();
+      history.index = history.stack.length - 1;
+      updateHistoryButtons();
+      if (triggerAutoSave) scheduleAutoSave();
+    }
+
+    function restoreSnapshot(snapStr) {
+      const parsed = JSON.parse(snapStr);
+      state.canvas = Object.assign(createDefaultCanvasState(), parsed.canvas);
+      state.layers = parsed.layers || [];
+      state.selectedId = parsed.selectedId || null;
+      state.cropMode = false;
+      resizeCanvasView();
+      syncAllUI();
+      render();
+    }
+
+    function undo() {
+      if (history.index <= 0) return;
+      history.index--;
+      restoreSnapshot(history.stack[history.index]);
+      updateHistoryButtons();
+      scheduleAutoSave();
+    }
+
+    function redo() {
+      if (history.index >= history.stack.length - 1) return;
+      history.index++;
+      restoreSnapshot(history.stack[history.index]);
+      updateHistoryButtons();
+      scheduleAutoSave();
+    }
+
+    function updateHistoryButtons() {
+      document.getElementById('btn-undo').disabled = history.index <= 0;
+      document.getElementById('btn-redo').disabled = history.index >= history.stack.length - 1;
+    }
+
+    // -------------------- 5. DIALOG CUSTOM (PENGGANTI ALERT/CONFIRM/PROMPT) --------------------
+    function openAppDialog({ title, message, confirmText = 'Ya, Lanjutkan', cancelText = 'Batal', danger = false, showInput = false, inputValue = '', inputPlaceholder = '' }) {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('app-dialog-modal');
+        const titleEl = document.getElementById('app-dialog-title');
+        const msgEl = document.getElementById('app-dialog-message');
+        const inputEl = document.getElementById('app-dialog-input');
+        const cancelBtn = document.getElementById('app-dialog-cancel');
+        const confirmBtn = document.getElementById('app-dialog-confirm');
+
+        titleEl.textContent = title || 'Konfirmasi';
+        msgEl.textContent = message || '';
+        cancelBtn.textContent = cancelText;
+        confirmBtn.textContent = confirmText;
+
+        confirmBtn.className = danger
+          ? 'px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-xs font-bold text-white active:scale-95 transition'
+          : 'px-4 py-2 rounded-xl bg-violet-600 hover:bg-violet-500 text-xs font-bold text-white active:scale-95 transition';
+
+        if (showInput) {
+          inputEl.classList.remove('hidden');
+          inputEl.value = inputValue;
+          inputEl.placeholder = inputPlaceholder;
+        } else {
+          inputEl.classList.add('hidden');
+        }
+
+        modal.classList.remove('hidden');
+        if (showInput) {
+          setTimeout(() => {
+            inputEl.focus();
+            inputEl.select();
+          }, 50);
+        }
+
+        const cleanup = (result) => {
+          modal.classList.add('hidden');
+          cancelBtn.onclick = null;
+          confirmBtn.onclick = null;
+          inputEl.onkeydown = null;
+          resolve(result);
+        };
+
+        cancelBtn.onclick = () => cleanup(showInput ? null : false);
+        confirmBtn.onclick = () => cleanup(showInput ? inputEl.value.trim() : true);
+        inputEl.onkeydown = (e) => {
+          if (e.key === 'Enter') cleanup(inputEl.value.trim());
+          if (e.key === 'Escape') cleanup(null);
+        };
+      });
+    }
+
+    // -------------------- 6. UPLOAD & TUKAR FOTO --------------------
+    function loadImageFromBlob(blob, name = 'Foto') {
+      return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+          const imgId = 'img_' + (nextImgId++);
+          imageRegistry.set(imgId, { img, blob, url, name });
+          resolve({ imgId, img });
+        };
+        img.onerror = (err) => {
+          URL.revokeObjectURL(url);
+          reject(err);
+        };
+        img.src = url;
+      });
+    }
+
+    function triggerUploadMulti() {
+      const input = document.getElementById('file-input-multi');
+      input.value = '';
+      input.click();
+    }
+
+    function triggerReplaceSelectedPhoto() {
+      if (!state.selectedId) return;
+      triggerReplaceLayerPhoto(state.selectedId);
+    }
+
+    function triggerReplaceLayerPhoto(layerId) {
+      replaceTargetLayerId = layerId;
+      const input = document.getElementById('file-input-replace');
+      input.value = '';
+      input.click();
+    }
+
+    document.getElementById('file-input-multi').addEventListener('change', async (e) => {
+      const files = Array.from(e.target.files || []).filter(f => f.type.startsWith('image/'));
+      if (!files.length) return;
+      await addImageFiles(files);
+    });
+
+    document.getElementById('file-input-replace').addEventListener('change', async (e) => {
+      const file = (e.target.files || [])[0];
+      if (!file || !file.type.startsWith('image/') || !replaceTargetLayerId) return;
+      try {
+        const layer = state.layers.find(l => l.id === replaceTargetLayerId);
+        if (!layer) return;
+        const { imgId, img } = await loadImageFromBlob(file, file.name);
+        const maxDim = Math.min(state.canvas.width, state.canvas.height) * 0.55;
+        const ratio = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight, 1);
+        layer.imgId = imgId;
+        layer.name = file.name.replace(/\.[^/.]+$/, '').slice(0, 24) || layer.name;
+        layer.baseW = Math.max(80, Math.round(img.naturalWidth * ratio));
+        layer.baseH = Math.max(80, Math.round(img.naturalHeight * ratio));
+        layer.imgZoom = 1;
+        layer.imgOffsetX = 0;
+        layer.imgOffsetY = 0;
+
+        // Jika mode proportional-grid aktif, rapikan lagi proporsinya
+        if (state.canvas.activeLayout === 'proportional-grid') {
+          applyLayout(state.canvas.activeLayout, false);
+        }
+
+        saveHistory();
+        syncAllUI();
+        render();
+        showToast('Foto berhasil ditukar!');
+      } catch (err) {
+        console.error(err);
+        showToast('Gagal memuat foto pengganti.');
+      } finally {
+        replaceTargetLayerId = null;
+      }
+    });
+
+    async function addImageFiles(files) {
+      let addedCount = 0;
+      const cw = state.canvas.width;
+      const ch = state.canvas.height;
+      const maxDim = Math.min(cw, ch) * 0.55;
+
+      for (const file of files) {
+        try {
+          const { imgId, img } = await loadImageFromBlob(file, file.name);
+          const ratio = Math.min(maxDim / img.naturalWidth, maxDim / img.naturalHeight, 1);
+          const baseW = Math.max(80, Math.round(img.naturalWidth * ratio));
+          const baseH = Math.max(80, Math.round(img.naturalHeight * ratio));
+
+          const offsetStep = ((state.layers.length % 5) - 2) * 32;
+          const layer = {
+            id: 'layer_' + (nextLayerId++),
+            imgId,
+            name: file.name.replace(/\.[^/.]+$/, '').slice(0, 24) || `Foto ${state.layers.length + 1}`,
+            x: cw / 2 + offsetStep,
+            y: ch / 2 + offsetStep,
+            baseW,
+            baseH,
+            clipW: null,
+            clipH: null,
+            scale: 1,
+            rotation: 0,
+            opacity: 1,
+            radius: state.canvas.globalRadius,
+            shadow: 18,
+            filter: 'none',
+            flipX: false,
+            flipY: false,
+            imgZoom: 1,
+            imgOffsetX: 0,
+            imgOffsetY: 0,
+            frameBg: '#ffffff',
+            visible: true,
+            locked: false
+          };
+
+          state.layers.push(layer);
+          state.selectedId = layer.id;
+          addedCount++;
+        } catch (err) {
+          console.error('Gagal load foto:', err);
+        }
+      }
+
+      if (addedCount > 0) {
+        if (state.canvas.activeLayout !== 'freeform') {
+          applyLayout(state.canvas.activeLayout, false);
+        }
+        saveHistory();
+        syncAllUI();
+        render();
+        showToast(`${addedCount} foto ditambahkan!`);
+      }
+    }
+
+    // -------------------- 7. TEMPLATE LAYOUT & CUSTOM GRID --------------------
+    function applyLayout(layoutId, recordHistory = true) {
+      state.canvas.activeLayout = layoutId;
+      state.cropMode = false;
+
+      const tpl = LAYOUT_TEMPLATES.find(t => t.id === layoutId);
+      const layers = state.layers;
+      const cw = state.canvas.width;
+      const ch = state.canvas.height;
+      const pad = state.canvas.padding;
+      const gap = state.canvas.gap;
+
+      if (layers.length > 0 && tpl) {
+        if (tpl.slots === null) {
+          // Bebas (Freeform): kembalikan ke ukuran proporsional tanpa crop paksa
+          layers.forEach((layer) => {
+            layer.clipW = null;
+            layer.clipH = null;
+            layer.imgZoom = 1;
+            layer.imgOffsetX = 0;
+            layer.imgOffsetY = 0;
+          });
+        } else if (tpl.slots === 'custom-grid') {
+          // Grid Simetris Custom (Kolom x Baris bebas, rapi & seragam)
+          const cols = Math.max(1, Math.min(10, parseInt(state.canvas.gridCols, 10) || 2));
+          const rows = Math.max(1, Math.min(10, parseInt(state.canvas.gridRows, 10) || 2));
+          const availW = Math.max(80, cw - pad * 2 - gap * (cols - 1));
+          const availH = Math.max(80, ch - pad * 2 - gap * (rows - 1));
+          const cellW = availW / cols;
+          const cellH = availH / rows;
+
+          layers.forEach((layer, idx) => {
+            const c = idx % cols;
+            const r = Math.floor(idx / cols) % rows;
+            const stackShift = Math.floor(idx / (cols * rows)) * 18;
+            layer.clipW = cellW;
+            layer.clipH = cellH;
+            layer.scale = 1;
+            layer.rotation = 0;
+            layer.x = pad + c * (cellW + gap) + cellW / 2 + stackShift;
+            layer.y = pad + r * (cellH + gap) + cellH / 2 + stackShift;
+            layer.radius = state.canvas.globalRadius;
+            clampCropOffset(layer);
+          });
+        } else if (tpl.slots === 'proportional-grid') {
+          // Rapi Proporsi Custom (Kolom x Baris bebas, posisi rapi namun mempertahankan rasio asli tiap gambar)
+          const cols = Math.max(1, Math.min(10, parseInt(state.canvas.gridCols, 10) || 2));
+          const rows = Math.max(1, Math.min(10, parseInt(state.canvas.gridRows, 10) || 2));
+          const availW = Math.max(80, cw - pad * 2 - gap * (cols - 1));
+          const availH = Math.max(80, ch - pad * 2 - gap * (rows - 1));
+          const cellW = availW / cols;
+          const cellH = availH / rows;
+
+          layers.forEach((layer, idx) => {
+            const c = idx % cols;
+            const r = Math.floor(idx / cols) % rows;
+            const stackShift = Math.floor(idx / (cols * rows)) * 18;
+            const entry = imageRegistry.get(layer.imgId);
+            const natW = entry && entry.img ? entry.img.naturalWidth : layer.baseW;
+            const natH = entry && entry.img ? entry.img.naturalHeight : layer.baseH;
+            const fitScale = Math.min(cellW / Math.max(1, natW), cellH / Math.max(1, natH));
+            const finalW = Math.max(40, natW * fitScale);
+            const finalH = Math.max(40, natH * fitScale);
+
+            layer.baseW = finalW;
+            layer.baseH = finalH;
+            layer.clipW = null;
+            layer.clipH = null;
+            layer.scale = 1;
+            layer.rotation = 0;
+            layer.imgZoom = 1;
+            layer.imgOffsetX = 0;
+            layer.imgOffsetY = 0;
+            layer.x = pad + c * (cellW + gap) + cellW / 2 + stackShift;
+            layer.y = pad + r * (cellH + gap) + cellH / 2 + stackShift;
+            layer.radius = state.canvas.globalRadius;
+          });
+        } else if (tpl.slots === 'scrapbook') {
+          // Scrapbook estetik dengan kemiringan natural
+          const count = layers.length;
+          const cols = Math.ceil(Math.sqrt(count));
+          const rows = Math.ceil(count / cols);
+          const availW = Math.max(100, cw - pad * 2);
+          const availH = Math.max(100, ch - pad * 2);
+          const cellW = availW / cols;
+          const cellH = availH / rows;
+          const angles = [-7, 5, -4, 8, -6, 4, -8, 6];
+
+          layers.forEach((layer, idx) => {
+            const c = idx % cols;
+            const r = Math.floor(idx / cols);
+            const entry = imageRegistry.get(layer.imgId);
+            const natW = entry && entry.img ? entry.img.naturalWidth : layer.baseW;
+            const natH = entry && entry.img ? entry.img.naturalHeight : layer.baseH;
+            const targetMax = Math.min(cellW, cellH) * 0.88;
+            const fitScale = Math.min(targetMax / Math.max(1, natW), targetMax / Math.max(1, natH));
+
+            layer.baseW = Math.max(60, natW * fitScale);
+            layer.baseH = Math.max(60, natH * fitScale);
+            layer.clipW = null;
+            layer.clipH = null;
+            layer.scale = 1;
+            layer.rotation = angles[idx % angles.length];
+            layer.x = pad + (c + 0.5) * cellW;
+            layer.y = pad + (r + 0.5) * cellH;
+            layer.shadow = 26;
+            layer.imgZoom = 1;
+            layer.imgOffsetX = 0;
+            layer.imgOffsetY = 0;
+          });
+        } else if (Array.isArray(tpl.slots)) {
+          // Preset Slot (2-h, 2-v, 3-bento, 4-grid, 6-grid)
+          const usableW = Math.max(100, cw - pad * 2);
+          const usableH = Math.max(100, ch - pad * 2);
+          const halfGap = gap / 2;
+
+          layers.forEach((layer, idx) => {
+            const slot = tpl.slots[idx % tpl.slots.length];
+            const stackShift = Math.floor(idx / tpl.slots.length) * 18;
+            const leftPad = slot.x > 0 ? halfGap : 0;
+            const rightPad = (slot.x + slot.w) < 0.999 ? halfGap : 0;
+            const topPad = slot.y > 0 ? halfGap : 0;
+            const bottomPad = (slot.y + slot.h) < 0.999 ? halfGap : 0;
+
+            const sx = pad + slot.x * usableW + leftPad;
+            const sy = pad + slot.y * usableH + topPad;
+            const sw = Math.max(40, slot.w * usableW - leftPad - rightPad);
+            const sh = Math.max(40, slot.h * usableH - topPad - bottomPad);
+
+            layer.clipW = sw;
+            layer.clipH = sh;
+            layer.scale = 1;
+            layer.rotation = 0;
+            layer.x = sx + sw / 2 + stackShift;
+            layer.y = sy + sh / 2 + stackShift;
+            layer.radius = state.canvas.globalRadius;
+            clampCropOffset(layer);
+          });
+        }
+      }
+
+      if (recordHistory) saveHistory();
+      syncLayoutUI();
+      syncEditUI();
+      render();
+    }
+
+    function stepCustomGrid(axis, delta) {
+      if (axis === 'cols') {
+        state.canvas.gridCols = Math.max(1, Math.min(10, (parseInt(state.canvas.gridCols, 10) || 2) + delta));
+      } else {
+        state.canvas.gridRows = Math.max(1, Math.min(10, (parseInt(state.canvas.gridRows, 10) || 2) + delta));
+      }
+      if (state.canvas.activeLayout === 'custom-grid' || state.canvas.activeLayout === 'proportional-grid') {
+        applyLayout(state.canvas.activeLayout, true);
+      } else {
+        syncLayoutUI();
+      }
+    }
+
+    function autoCustomGrid() {
+      const count = Math.max(1, state.layers.length);
+      const cols = Math.min(10, Math.ceil(Math.sqrt(count)));
+      const rows = Math.min(10, Math.ceil(count / cols));
+      state.canvas.gridCols = cols;
+      state.canvas.gridRows = rows;
+      applyLayout(state.canvas.activeLayout, true);
+      showToast(`Grid disesuaikan ke ${cols} × ${rows}`);
+    }
+
+    // -------------------- 8. KONTROL KANVAS & BINGKAI --------------------
+    function setCanvasSize(w, h) {
+      const nw = Math.max(300, Math.min(4096, Math.round(w)));
+      const nh = Math.max(300, Math.min(4096, Math.round(h)));
+      const scaleX = nw / state.canvas.width;
+      const scaleY = nh / state.canvas.height;
+      state.canvas.width = nw;
+      state.canvas.height = nh;
+
+      if (state.canvas.activeLayout !== 'freeform') {
+        applyLayout(state.canvas.activeLayout, false);
+      } else {
+        state.layers.forEach(l => {
+          l.x *= scaleX;
+          l.y *= scaleY;
+        });
+      }
+
+      resizeCanvasView();
+      saveHistory();
+      syncCanvasUI();
+      render();
+    }
+
+    function applyCustomCanvasSize() {
+      const w = parseInt(document.getElementById('input-canvas-w').value, 10);
+      const h = parseInt(document.getElementById('input-canvas-h').value, 10);
+      if (isNaN(w) || isNaN(h)) return;
+      setCanvasSize(w, h);
+      showToast(`Kanvas diubah ke ${state.canvas.width} × ${state.canvas.height} px`);
+    }
+
+    function setCanvasBg(type, val) {
+      state.canvas.bgType = type;
+      if (type === 'solid' && val) state.canvas.bgColor = val;
+      if (type === 'gradient' && Array.isArray(val)) state.canvas.bgGradient = val;
+      saveHistory();
+      syncCanvasUI();
+      render();
+    }
+
+    function setFramePreset(frameId) {
+      state.canvas.frameId = frameId;
+      saveHistory();
+      syncFrameUI();
+      render();
+    }
+
+    // -------------------- 9. MODE CROP, ZOOM OUT & EDIT LAYER --------------------
+    function toggleCropMode() {
+      const layer = getSelectedLayer();
+      if (!layer || layer.locked) return;
+      state.cropMode = !state.cropMode;
+      syncCropModeUI();
+      render();
+    }
+
+    function exitCropMode() {
+      if (!state.cropMode) return;
+      state.cropMode = false;
+      syncCropModeUI();
+      render();
+    }
+
+    function fitSelectedImageInFrame() {
+      const layer = getSelectedLayer();
+      if (!layer) return;
+      const entry = imageRegistry.get(layer.imgId);
+      if (!entry || !entry.img) return;
+      const { baseW, baseH } = getLayerBaseDims(layer);
+      const { imgAspect, boxAspect } = getCoverMetrics(entry.img, baseW, baseH);
+      const fitZoom = imgAspect > boxAspect ? (boxAspect / imgAspect) : (imgAspect / boxAspect);
+      layer.imgZoom = Math.max(0.2, Math.min(1, Number(fitZoom.toFixed(3))));
+      layer.imgOffsetX = 0;
+      layer.imgOffsetY = 0;
+      saveHistory();
+      syncEditUI();
+      render();
+      showToast('Foto ditampilkan utuh di dalam frame');
+    }
+
+    function nudgeCrop(dx, dy) {
+      const layer = getSelectedLayer();
+      if (!layer || layer.locked) return;
+      layer.imgOffsetX = (layer.imgOffsetX || 0) + dx;
+      layer.imgOffsetY = (layer.imgOffsetY || 0) + dy;
+      clampCropOffset(layer);
+      saveHistory();
+      render();
+    }
+
+    function resetSelectedCrop() {
+      const layer = getSelectedLayer();
+      if (!layer) return;
+      layer.imgZoom = 1;
+      layer.imgOffsetX = 0;
+      layer.imgOffsetY = 0;
+      saveHistory();
+      syncEditUI();
+      render();
+      showToast('Posisi & zoom isi foto direset');
+    }
+
+    function setSelectedFrameBg(color) {
+      const layer = getSelectedLayer();
+      if (!layer) return;
+      layer.frameBg = color;
+      saveHistory();
+      syncEditUI();
+      render();
+    }
+
+    function applyFrameBgToAll() {
+      const layer = getSelectedLayer();
+      if (!layer) return;
+      const color = layer.frameBg != null ? layer.frameBg : '#ffffff';
+      state.layers.forEach(l => { l.frameBg = color; });
+      saveHistory();
+      syncEditUI();
+      render();
+      showToast('Latar frame diterapkan ke semua foto');
+    }
+
+    function flipSelected(dir) {
+      const layer = getSelectedLayer();
+      if (!layer || layer.locked) return;
+      if (dir === 'h') layer.flipX = !layer.flipX;
+      if (dir === 'v') layer.flipY = !layer.flipY;
+      saveHistory();
+      render();
+    }
+
+    function rotateSelected90() {
+      const layer = getSelectedLayer();
+      if (!layer || layer.locked) return;
+      let nextRot = ((layer.rotation || 0) + 90) % 360;
+      if (nextRot > 180) nextRot -= 360;
+      layer.rotation = nextRot;
+      saveHistory();
+      syncEditUI();
+      render();
+    }
+
+    function centerSelected() {
+      const layer = getSelectedLayer();
+      if (!layer || layer.locked) return;
+      layer.x = state.canvas.width / 2;
+      layer.y = state.canvas.height / 2;
+      saveHistory();
+      render();
+    }
+
+    function duplicateSelectedLayer() {
+      const layer = getSelectedLayer();
+      if (!layer) return;
+      const copy = JSON.parse(JSON.stringify(layer));
+      copy.id = 'layer_' + (nextLayerId++);
+      copy.name = (layer.name + ' (Salinan)').slice(0, 26);
+      copy.x += 36;
+      copy.y += 36;
+      copy.locked = false;
+      state.layers.push(copy);
+      state.selectedId = copy.id;
+      state.cropMode = false;
+      saveHistory();
+      syncAllUI();
+      render();
+      showToast('Layer diduplikat');
+    }
+
+    function deleteSelectedLayer() {
+      if (!state.selectedId) return;
+      deleteLayerById(state.selectedId);
+    }
+
+    function deleteLayerById(id) {
+      const idx = state.layers.findIndex(l => l.id === id);
+      if (idx === -1) return;
+      state.layers.splice(idx, 1);
+      if (state.selectedId === id) {
+        state.selectedId = state.layers.length ? state.layers[state.layers.length - 1].id : null;
+        state.cropMode = false;
+      }
+      saveHistory();
+      syncAllUI();
+      render();
+    }
+
+    function selectLayer(id) {
+      state.selectedId = id;
+      state.cropMode = false;
+      syncAllUI();
+      render();
+    }
+
+    function moveLayerOrder(id, dir) {
+      const idx = state.layers.findIndex(l => l.id === id);
+      if (idx === -1) return;
+      const targetIdx = idx + dir;
+      if (targetIdx < 0 || targetIdx >= state.layers.length) return;
+      const [item] = state.layers.splice(idx, 1);
+      state.layers.splice(targetIdx, 0, item);
+      saveHistory();
+      syncLayersUI();
+      render();
+    }
+
+    function toggleLayerLock(id) {
+      const l = state.layers.find(x => x.id === id);
+      if (!l) return;
+      l.locked = !l.locked;
+      if (l.locked && state.selectedId === id) state.cropMode = false;
+      saveHistory();
+      syncAllUI();
+      render();
+    }
+
+    function toggleLayerVisibility(id) {
+      const l = state.layers.find(x => x.id === id);
+      if (!l) return;
+      l.visible = !l.visible;
+      saveHistory();
+      syncAllUI();
+      render();
+    }
+
+    // -------------------- 10. RENDERING KANVAS (PREVIEW & EKSPOR PENUH) --------------------
+    function drawRoundedRectPath(c, x, y, w, h, r) {
+      const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+      c.beginPath();
+      c.moveTo(x + radius, y);
+      c.lineTo(x + w - radius, y);
+      c.quadraticCurveTo(x + w, y, x + w, y + radius);
+      c.lineTo(x + w, y + h - radius);
+      c.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+      c.lineTo(x + radius, y + h);
+      c.quadraticCurveTo(x, y + h, x, y + h - radius);
+      c.lineTo(x, y + radius);
+      c.quadraticCurveTo(x, y, x + radius, y);
+      c.closePath();
+    }
+
+    function drawBackground(targetCtx, w, h) {
+      targetCtx.clearRect(0, 0, w, h);
+      if (state.canvas.bgType === 'solid') {
+        targetCtx.fillStyle = state.canvas.bgColor;
+        targetCtx.fillRect(0, 0, w, h);
+      } else if (state.canvas.bgType === 'gradient') {
+        const grad = targetCtx.createLinearGradient(0, 0, w, h);
+        grad.addColorStop(0, state.canvas.bgGradient[0]);
+        grad.addColorStop(1, state.canvas.bgGradient[1]);
+        targetCtx.fillStyle = grad;
+        targetCtx.fillRect(0, 0, w, h);
+      }
+    }
+
+    function drawSingleLayer(targetCtx, layer) {
+      if (!layer.visible) return;
+      const entry = imageRegistry.get(layer.imgId);
+      if (!entry || !entry.img) return;
+      const img = entry.img;
+      const { w, h } = getLayerDims(layer);
+      const radius = (layer.radius || 0) * layer.scale;
+      const filterObj = FILTER_PRESETS.find(f => f.id === layer.filter) || FILTER_PRESETS[0];
+      const frameBg = layer.frameBg != null ? layer.frameBg : '#ffffff';
+      const hasOpaqueBg = frameBg !== 'transparent';
+
+      targetCtx.save();
+      targetCtx.translate(layer.x, layer.y);
+      targetCtx.rotate((layer.rotation || 0) * Math.PI / 180);
+      targetCtx.globalAlpha = layer.opacity != null ? layer.opacity : 1;
+
+      // Bayangan untuk bingkai solid
+      if (layer.shadow > 0 && hasOpaqueBg) {
+        targetCtx.save();
+        targetCtx.shadowColor = 'rgba(0, 0, 0, 0.48)';
+        targetCtx.shadowBlur = layer.shadow * 1.4;
+        targetCtx.shadowOffsetY = layer.shadow * 0.35;
+        targetCtx.fillStyle = frameBg;
+        drawRoundedRectPath(targetCtx, -w / 2, -h / 2, w, h, radius);
+        targetCtx.fill();
+        targetCtx.restore();
+      }
+
+      // Klip bentuk rounded rect frame
+      targetCtx.save();
+      drawRoundedRectPath(targetCtx, -w / 2, -h / 2, w, h, radius);
+      targetCtx.clip();
+
+      // Isi latar belakang frame (penting saat foto di-zoom out)
+      if (hasOpaqueBg) {
+        targetCtx.fillStyle = frameBg;
+        targetCtx.fillRect(-w / 2, -h / 2, w, h);
+      }
+
+      // Transformasi flip & filter
+      targetCtx.scale(layer.flipX ? -1 : 1, layer.flipY ? -1 : 1);
+      if (filterObj.css !== 'none') {
+        targetCtx.filter = filterObj.css;
+      }
+
+      // Jika frameBg transparan namun ada shadow, terapkan bayangan langsung pada foto
+      if (layer.shadow > 0 && !hasOpaqueBg) {
+        targetCtx.shadowColor = 'rgba(0, 0, 0, 0.45)';
+        targetCtx.shadowBlur = layer.shadow * 1.1;
+        targetCtx.shadowOffsetY = layer.shadow * 0.3;
+      }
+
+      // Hitung dimensi & posisi isi foto (crop + zoom in/out)
+      const { coverW, coverH } = getCoverMetrics(img, w, h);
+      const zoom = layer.imgZoom != null ? layer.imgZoom : 1;
+      const drawW = coverW * zoom;
+      const drawH = coverH * zoom;
+      const offX = (layer.imgOffsetX || 0) * layer.scale;
+      const offY = (layer.imgOffsetY || 0) * layer.scale;
+
+      targetCtx.drawImage(img, -drawW / 2 + offX, -drawH / 2 + offY, drawW, drawH);
+      targetCtx.restore();
+      targetCtx.restore();
+    }
+
+    function drawFrameOverlay(targetCtx, w, h) {
+      const fId = state.canvas.frameId;
+      if (!fId || fId === 'none') return;
+      const accent = state.canvas.frameAccent || '#ffffff';
+      const caption = (state.canvas.frameCaption || '').trim();
+      const minSide = Math.min(w, h);
+
+      targetCtx.save();
+
+      if (fId === 'polaroid') {
+        const side = Math.round(minSide * 0.048);
+        const bottom = Math.round(minSide * 0.16);
+        targetCtx.fillStyle = accent;
+        targetCtx.fillRect(0, 0, w, side);
+        targetCtx.fillRect(0, 0, side, h);
+        targetCtx.fillRect(w - side, 0, side, h);
+        targetCtx.fillRect(0, h - bottom, w, bottom);
+
+        // Garis tipis bagian dalam
+        targetCtx.strokeStyle = 'rgba(0,0,0,0.12)';
+        targetCtx.lineWidth = Math.max(2, minSide * 0.002);
+        targetCtx.strokeRect(side, side, w - side * 2, h - side - bottom);
+
+        if (caption) {
+          targetCtx.fillStyle = '#1f2937';
+          targetCtx.font = `600 ${Math.round(minSide * 0.04)}px Inter, sans-serif`;
+          targetCtx.textAlign = 'center';
+          targetCtx.textBaseline = 'middle';
+          targetCtx.fillText(caption, w / 2, h - bottom / 2);
+        }
+      } else if (fId === 'film') {
+        const bar = Math.round(minSide * 0.085);
+        targetCtx.fillStyle = '#0f1016';
+        targetCtx.fillRect(0, 0, w, bar);
+        targetCtx.fillRect(0, h - bar, w, bar);
+        targetCtx.fillRect(0, 0, Math.round(bar * 0.35), h);
+        targetCtx.fillRect(w - Math.round(bar * 0.35), 0, Math.round(bar * 0.35), h);
+
+        // Lubang sprocket film
+        const holeW = Math.round(bar * 0.38);
+        const holeH = Math.round(bar * 0.45);
+        const step = Math.round(holeW * 2.1);
+        targetCtx.fillStyle = accent;
+        for (let x = step * 0.5; x < w - holeW; x += step) {
+          drawRoundedRectPath(targetCtx, x, (bar - holeH) / 2, holeW, holeH, 6);
+          targetCtx.fill();
+          drawRoundedRectPath(targetCtx, x, h - bar + (bar - holeH) / 2, holeW, holeH, 6);
+          targetCtx.fill();
+        }
+
+        if (caption) {
+          targetCtx.fillStyle = accent;
+          targetCtx.font = `700 ${Math.round(minSide * 0.028)}px monospace`;
+          targetCtx.textAlign = 'center';
+          targetCtx.textBaseline = 'middle';
+          targetCtx.fillText(caption.toUpperCase(), w / 2, h - bar * 1.35);
+        }
+      } else if (fId === 'minimal') {
+        const border = Math.round(minSide * 0.025);
+        targetCtx.strokeStyle = accent;
+        targetCtx.lineWidth = border;
+        targetCtx.strokeRect(border / 2, border / 2, w - border, h - border);
+      } else if (fId === 'neon') {
+        const inset = Math.round(minSide * 0.032);
+        targetCtx.strokeStyle = accent === '#ffffff' ? '#a855f7' : accent;
+        targetCtx.lineWidth = Math.max(4, minSide * 0.008);
+        targetCtx.shadowColor = targetCtx.strokeStyle;
+        targetCtx.shadowBlur = minSide * 0.035;
+        drawRoundedRectPath(targetCtx, inset, inset, w - inset * 2, h - inset * 2, minSide * 0.025);
+        targetCtx.stroke();
+        targetCtx.stroke();
+      } else if (fId === 'vintage') {
+        const outer = Math.round(minSide * 0.035);
+        const inner = Math.round(minSide * 0.055);
+        targetCtx.strokeStyle = accent === '#ffffff' ? '#e5d3b3' : accent;
+        targetCtx.lineWidth = Math.max(4, minSide * 0.01);
+        targetCtx.strokeRect(outer, outer, w - outer * 2, h - outer * 2);
+        targetCtx.lineWidth = Math.max(2, minSide * 0.003);
+        targetCtx.strokeRect(inner, inner, w - inner * 2, h - inner * 2);
+      }
+
+      targetCtx.restore();
+    }
+
+    function renderSceneToContext(targetCtx, w, h, includeGuides) {
+      drawBackground(targetCtx, w, h);
+
+      // Gambar seluruh layer
+      for (const layer of state.layers) {
+        drawSingleLayer(targetCtx, layer);
+      }
+
+      // Gambar bingkai overlay
+      drawFrameOverlay(targetCtx, w, h);
+
+      if (!includeGuides) return;
+
+      // Garis bantu snap ke tengah
+      if (snapLines.x || snapLines.y) {
+        targetCtx.save();
+        targetCtx.strokeStyle = '#f43f5e';
+        targetCtx.lineWidth = Math.max(2, 2 / displayScale);
+        targetCtx.setLineDash([10 / displayScale, 8 / displayScale]);
+        if (snapLines.x) {
+          targetCtx.beginPath();
+          targetCtx.moveTo(w / 2, 0);
+          targetCtx.lineTo(w / 2, h);
+          targetCtx.stroke();
+        }
+        if (snapLines.y) {
+          targetCtx.beginPath();
+          targetCtx.moveTo(0, h / 2);
+          targetCtx.lineTo(w, h / 2);
+          targetCtx.stroke();
+        }
+        targetCtx.restore();
+      }
+
+      // Seleksi & Mode Crop
+      const sel = getSelectedLayer();
+      if (!sel || !sel.visible) return;
+      const { w: lw, h: lh } = getLayerDims(sel);
+      const invS = 1 / Math.max(0.1, displayScale);
+
+      if (state.cropMode) {
+        // Gelapkan area di luar frame terpilih
+        targetCtx.save();
+        targetCtx.fillStyle = 'rgba(0, 0, 0, 0.58)';
+        targetCtx.beginPath();
+        targetCtx.rect(0, 0, w, h);
+        targetCtx.translate(sel.x, sel.y);
+        targetCtx.rotate((sel.rotation || 0) * Math.PI / 180);
+        targetCtx.rect(-lw / 2, -lh / 2, lw, lh);
+        targetCtx.fill('evenodd');
+
+        // Grid 3x3 di dalam frame
+        targetCtx.strokeStyle = 'rgba(34, 211, 238, 0.85)';
+        targetCtx.lineWidth = 2 * invS;
+        targetCtx.strokeRect(-lw / 2, -lh / 2, lw, lh);
+
+        targetCtx.strokeStyle = 'rgba(255, 255, 255, 0.45)';
+        targetCtx.lineWidth = 1.2 * invS;
+        targetCtx.beginPath();
+        targetCtx.moveTo(-lw / 6, -lh / 2); targetCtx.lineTo(-lw / 6, lh / 2);
+        targetCtx.moveTo(lw / 6, -lh / 2);  targetCtx.lineTo(lw / 6, lh / 2);
+        targetCtx.moveTo(-lw / 2, -lh / 6); targetCtx.lineTo(lw / 2, -lh / 6);
+        targetCtx.moveTo(-lw / 2, lh / 6);  targetCtx.lineTo(lw / 2, lh / 6);
+        targetCtx.stroke();
+        targetCtx.restore();
+      } else {
+        // Kotak seleksi normal + handle sudut & rotasi
+        targetCtx.save();
+        targetCtx.translate(sel.x, sel.y);
+        targetCtx.rotate((sel.rotation || 0) * Math.PI / 180);
+
+        targetCtx.strokeStyle = sel.locked ? '#f59e0b' : '#8b5cf6';
+        targetCtx.lineWidth = 2.2 * invS;
+        targetCtx.strokeRect(-lw / 2, -lh / 2, lw, lh);
+
+        if (!sel.locked) {
+          const handleR = 8 * invS;
+          const rotDist = 28 * invS;
+
+          // Garis & tombol rotasi di atas
+          targetCtx.beginPath();
+          targetCtx.moveTo(0, -lh / 2);
+          targetCtx.lineTo(0, -lh / 2 - rotDist);
+          targetCtx.stroke();
+
+          targetCtx.fillStyle = '#ffffff';
+          targetCtx.beginPath();
+          targetCtx.arc(0, -lh / 2 - rotDist, handleR * 1.05, 0, Math.PI * 2);
+          targetCtx.fill();
+          targetCtx.stroke();
+
+          // 4 Handle sudut untuk scale
+          const corners = [
+            [-lw / 2, -lh / 2],
+            [lw / 2, -lh / 2],
+            [lw / 2, lh / 2],
+            [-lw / 2, lh / 2]
+          ];
+          corners.forEach(([cx, cy]) => {
+            targetCtx.fillStyle = '#ffffff';
+            targetCtx.beginPath();
+            targetCtx.arc(cx, cy, handleR, 0, Math.PI * 2);
+            targetCtx.fill();
+            targetCtx.stroke();
+          });
+        }
+
+        targetCtx.restore();
+      }
+    }
+
+    function render() {
+      const w = state.canvas.width;
+      const h = state.canvas.height;
+      if (canvasEl.width !== w || canvasEl.height !== h) {
+        canvasEl.width = w;
+        canvasEl.height = h;
+      }
+      renderSceneToContext(ctx, w, h, true);
+      document.getElementById('empty-state').classList.toggle('hidden', state.layers.length > 0);
+      document.getElementById('canvas-dim-badge').textContent = `${w} × ${h} px • ${state.layers.length} foto`;
+    }
+
+    function resizeCanvasView() {
+      const rect = stageEl.getBoundingClientRect();
+      const availW = Math.max(120, rect.width - 28);
+      const availH = Math.max(120, rect.height - 64);
+      const scale = Math.min(availW / state.canvas.width, availH / state.canvas.height, 1);
+      displayScale = Math.max(0.05, scale);
+      const cssW = Math.round(state.canvas.width * displayScale);
+      const cssH = Math.round(state.canvas.height * displayScale);
+      canvasEl.style.width = cssW + 'px';
+      canvasEl.style.height = cssH + 'px';
+      wrapperEl.style.width = cssW + 'px';
+      wrapperEl.style.height = cssH + 'px';
+      render();
+    }
+
+    // -------------------- 11. INTERAKSI SENTUH & MOUSE (1 JARI, 2 JARI PINCH/ROTATE, DOUBLE-TAP) --------------------
+    const activePointers = new Map();
+    let interaction = null;
+    let lastTapTime = 0;
+    let lastTapLayerId = null;
+
+    function getCanvasPoint(clientX, clientY) {
+      const rect = canvasEl.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left) * (state.canvas.width / Math.max(1, rect.width)),
+        y: (clientY - rect.top) * (state.canvas.height / Math.max(1, rect.height))
+      };
+    }
+
+    function worldToLayerLocal(layer, wx, wy) {
+      const dx = wx - layer.x;
+      const dy = wy - layer.y;
+      const rad = -(layer.rotation || 0) * Math.PI / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      return {
+        lx: dx * cos - dy * sin,
+        ly: dx * sin + dy * cos
+      };
+    }
+
+    function hitTestLayerHandles(layer, pt) {
+      if (!layer || !layer.visible || layer.locked || state.cropMode) return null;
+      const { w, h } = getLayerDims(layer);
+      const { lx, ly } = worldToLayerLocal(layer, pt.x, pt.y);
+      const invS = 1 / Math.max(0.1, displayScale);
+      const hitTol = 18 * invS;
+      const rotY = -h / 2 - 28 * invS;
+
+      if (Math.hypot(lx, ly - rotY) <= hitTol) return 'rotate';
+      const corners = [
+        [-w / 2, -h / 2],
+        [w / 2, -h / 2],
+        [w / 2, h / 2],
+        [-w / 2, h / 2]
+      ];
+      for (const [cx, cy] of corners) {
+        if (Math.hypot(lx - cx, ly - cy) <= hitTol) return 'scale';
+      }
+      return null;
+    }
+
+    function hitTestLayers(pt) {
+      for (let i = state.layers.length - 1; i >= 0; i--) {
+        const layer = state.layers[i];
+        if (!layer.visible) continue;
+        const { w, h } = getLayerDims(layer);
+        const { lx, ly } = worldToLayerLocal(layer, pt.x, pt.y);
+        if (Math.abs(lx) <= w / 2 && Math.abs(ly) <= h / 2) {
+          return layer;
+        }
+      }
+      return null;
+    }
+
+    function startTwoFingerInteraction(layer) {
+      const pts = Array.from(activePointers.values());
+      const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
+
+      interaction = {
+        type: state.cropMode ? 'crop-pinch' : 'pinch',
+        layerId: layer.id,
+        startDist: Math.max(10, dist),
+        startAngle: angle,
+        startMidX: midX,
+        startMidY: midY,
+        origX: layer.x,
+        origY: layer.y,
+        origScale: layer.scale,
+        origRot: layer.rotation || 0,
+        origImgZoom: layer.imgZoom != null ? layer.imgZoom : 1,
+        origImgOffX: layer.imgOffsetX || 0,
+        origImgOffY: layer.imgOffsetY || 0,
+        moved: false
+      };
+    }
+
+    canvasEl.addEventListener('pointerdown', (e) => {
+      canvasEl.setPointerCapture(e.pointerId);
+      const pt = getCanvasPoint(e.clientX, e.clientY);
+      activePointers.set(e.pointerId, pt);
+
+      const sel = getSelectedLayer();
+
+      // Gestur 2 jari pada layer terpilih
+      if (activePointers.size === 2 && sel && !sel.locked) {
+        startTwoFingerInteraction(sel);
+        return;
+      }
+
+      if (activePointers.size > 1) return;
+
+      // Mode Crop: geser isi atau ketuk luar untuk keluar
+      if (state.cropMode && sel) {
+        const { w, h } = getLayerDims(sel);
+        const { lx, ly } = worldToLayerLocal(sel, pt.x, pt.y);
+        if (Math.abs(lx) <= w / 2 && Math.abs(ly) <= h / 2) {
+          interaction = {
+            type: 'crop-pan',
+            layerId: sel.id,
+            startPt: pt,
+            origImgOffX: sel.imgOffsetX || 0,
+            origImgOffY: sel.imgOffsetY || 0,
+            moved: false
+          };
+        } else {
+          exitCropMode();
+        }
+        return;
+      }
+
+      // Cek handle scale / rotate pada layer terpilih
+      if (sel) {
+        const handle = hitTestLayerHandles(sel, pt);
+        if (handle) {
+          interaction = {
+            type: handle,
+            layerId: sel.id,
+            startPt: pt,
+            origScale: sel.scale,
+            origRot: sel.rotation || 0,
+            startDist: Math.max(10, Math.hypot(pt.x - sel.x, pt.y - sel.y)),
+            startAngle: Math.atan2(pt.y - sel.y, pt.x - sel.x),
+            moved: false
+          };
+          return;
+        }
+      }
+
+      // Hit test layer dari paling atas
+      const hit = hitTestLayers(pt);
+      if (hit) {
+        const now = Date.now();
+        const isDoubleTap = (now - lastTapTime < 320) && (lastTapLayerId === hit.id);
+        lastTapTime = now;
+        lastTapLayerId = hit.id;
+
+        state.selectedId = hit.id;
+        syncAllUI();
+
+        if (isDoubleTap && !hit.locked) {
+          state.cropMode = true;
+          syncCropModeUI();
+          render();
+          showToast('Mode Geser Isi aktif');
+          return;
+        }
+
+        if (!hit.locked) {
+          interaction = {
+            type: 'drag',
+            layerId: hit.id,
+            startPt: pt,
+            origX: hit.x,
+            origY: hit.y,
+            moved: false
+          };
+        }
+        render();
+      } else {
+        state.selectedId = null;
+        state.cropMode = false;
+        syncAllUI();
+        render();
+      }
+    });
+
+    canvasEl.addEventListener('pointermove', (e) => {
+      if (!activePointers.has(e.pointerId)) return;
+      const pt = getCanvasPoint(e.clientX, e.clientY);
+      activePointers.set(e.pointerId, pt);
+      if (!interaction) return;
+
+      const layer = state.layers.find(l => l.id === interaction.layerId);
+      if (!layer || layer.locked) return;
+
+      if (interaction.type === 'drag') {
+        const dx = pt.x - interaction.startPt.x;
+        const dy = pt.y - interaction.startPt.y;
+        let nx = interaction.origX + dx;
+        let ny = interaction.origY + dy;
+
+        const snapTol = 12 / Math.max(0.1, displayScale);
+        snapLines.x = Math.abs(nx - state.canvas.width / 2) < snapTol;
+        snapLines.y = Math.abs(ny - state.canvas.height / 2) < snapTol;
+        if (snapLines.x) nx = state.canvas.width / 2;
+        if (snapLines.y) ny = state.canvas.height / 2;
+
+        layer.x = nx;
+        layer.y = ny;
+        interaction.moved = true;
+        render();
+      } else if (interaction.type === 'scale') {
+        const dist = Math.max(10, Math.hypot(pt.x - layer.x, pt.y - layer.y));
+        const ratio = dist / interaction.startDist;
+        layer.scale = Math.max(0.15, Math.min(4, interaction.origScale * ratio));
+        interaction.moved = true;
+        syncEditUI();
+        render();
+      } else if (interaction.type === 'rotate') {
+        const angle = Math.atan2(pt.y - layer.y, pt.x - layer.x);
+        let deg = interaction.origRot + (angle - interaction.startAngle) * 180 / Math.PI;
+        // Snap ke kelipatan 45 derajat jika sangat dekat
+        const snapped = Math.round(deg / 45) * 45;
+        if (Math.abs(deg - snapped) < 4) deg = snapped;
+        if (deg > 180) deg -= 360;
+        if (deg < -180) deg += 360;
+        layer.rotation = Math.round(deg);
+        interaction.moved = true;
+        syncEditUI();
+        render();
+      } else if (interaction.type === 'pinch' && activePointers.size >= 2) {
+        const pts = Array.from(activePointers.values());
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const angle = Math.atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x);
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+
+        layer.scale = Math.max(0.15, Math.min(4, interaction.origScale * (dist / interaction.startDist)));
+        let deg = interaction.origRot + (angle - interaction.startAngle) * 180 / Math.PI;
+        if (deg > 180) deg -= 360;
+        if (deg < -180) deg += 360;
+        layer.rotation = Math.round(deg);
+        layer.x = interaction.origX + (midX - interaction.startMidX);
+        layer.y = interaction.origY + (midY - interaction.startMidY);
+        interaction.moved = true;
+        syncEditUI();
+        render();
+      } else if (interaction.type === 'crop-pan') {
+        const dx = pt.x - interaction.startPt.x;
+        const dy = pt.y - interaction.startPt.y;
+        const rad = -(layer.rotation || 0) * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const ldx = (dx * cos - dy * sin) / layer.scale * (layer.flipX ? -1 : 1);
+        const ldy = (dx * sin + dy * cos) / layer.scale * (layer.flipY ? -1 : 1);
+
+        layer.imgOffsetX = interaction.origImgOffX + ldx;
+        layer.imgOffsetY = interaction.origImgOffY + ldy;
+        clampCropOffset(layer);
+        interaction.moved = true;
+        render();
+      } else if (interaction.type === 'crop-pinch' && activePointers.size >= 2) {
+        const pts = Array.from(activePointers.values());
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        const midX = (pts[0].x + pts[1].x) / 2;
+        const midY = (pts[0].y + pts[1].y) / 2;
+        const dx = midX - interaction.startMidX;
+        const dy = midY - interaction.startMidY;
+        const rad = -(layer.rotation || 0) * Math.PI / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const ldx = (dx * cos - dy * sin) / layer.scale * (layer.flipX ? -1 : 1);
+        const ldy = (dx * sin + dy * cos) / layer.scale * (layer.flipY ? -1 : 1);
+
+        layer.imgZoom = Math.max(0.2, Math.min(3.5, interaction.origImgZoom * (dist / interaction.startDist)));
+        layer.imgOffsetX = interaction.origImgOffX + ldx;
+        layer.imgOffsetY = interaction.origImgOffY + ldy;
+        clampCropOffset(layer);
+        interaction.moved = true;
+        syncEditUI();
+        render();
+      }
+    });
+
+    function endPointer(e) {
+      activePointers.delete(e.pointerId);
+      if (interaction && interaction.moved && activePointers.size === 0) {
+        saveHistory();
+      }
+      if (activePointers.size === 0) {
+        interaction = null;
+        snapLines.x = false;
+        snapLines.y = false;
+        render();
+      }
+    }
+
+    canvasEl.addEventListener('pointerup', endPointer);
+    canvasEl.addEventListener('pointercancel', endPointer);
+
+    // Scroll wheel untuk zoom isi saat mode Crop aktif (Desktop)
+    canvasEl.addEventListener('wheel', (e) => {
+      const sel = getSelectedLayer();
+      if (!sel || sel.locked) return;
+      if (state.cropMode) {
+        e.preventDefault();
+        const factor = e.deltaY < 0 ? 1.06 : 0.94;
+        sel.imgZoom = Math.max(0.2, Math.min(3.5, (sel.imgZoom != null ? sel.imgZoom : 1) * factor));
+        clampCropOffset(sel);
+        syncEditUI();
+        render();
+        scheduleAutoSave();
+      }
+    }, { passive: false });
+
+    // -------------------- 12. EKSPOR GAMBAR RESOLUSI PENUH --------------------
+    let lastExportBlob = null;
+
+    function renderExportPreview() {
+      const offCanvas = document.createElement('canvas');
+      offCanvas.width = state.canvas.width;
+      offCanvas.height = state.canvas.height;
+      const offCtx = offCanvas.getContext('2d');
+
+      if (state.exportFormat === 'jpeg' && state.canvas.bgType === 'transparent') {
+        offCtx.fillStyle = '#ffffff';
+        offCtx.fillRect(0, 0, offCanvas.width, offCanvas.height);
+      }
+
+      renderSceneToContext(offCtx, offCanvas.width, offCanvas.height, false);
+
+      const mime = state.exportFormat === 'jpeg' ? 'image/jpeg' : 'image/png';
+      const dataUrl = offCanvas.toDataURL(mime, state.exportQuality);
+      document.getElementById('export-preview-img').src = dataUrl;
+      document.getElementById('export-dim-info').textContent = `${state.canvas.width} × ${state.canvas.height} px • ${state.exportFormat.toUpperCase()}`;
+
+      offCanvas.toBlob((blob) => {
+        lastExportBlob = blob;
+      }, mime, state.exportQuality);
+    }
+
+    function openExportModal() {
+      if (state.layers.length === 0) {
+        showToast('Tambahkan minimal 1 foto terlebih dahulu');
+        return;
+      }
+      state.cropMode = false;
+      syncCropModeUI();
+      document.getElementById('export-modal').classList.remove('hidden');
+      setExportFormat(state.exportFormat);
+    }
+
+    function closeExportModal() {
+      document.getElementById('export-modal').classList.add('hidden');
+    }
+
+    function setExportFormat(fmt) {
+      state.exportFormat = fmt;
+      const btnPng = document.getElementById('fmt-png');
+      const btnJpg = document.getElementById('fmt-jpeg');
+      const qWrap = document.getElementById('export-quality-wrap');
+
+      if (fmt === 'png') {
+        btnPng.className = 'py-2 rounded-xl border border-violet-500 bg-violet-600/20 text-xs font-bold text-white transition';
+        btnJpg.className = 'py-2 rounded-xl border border-studio-border bg-studio-card text-xs font-bold text-gray-300 transition';
+        qWrap.classList.add('hidden');
+      } else {
+        btnJpg.className = 'py-2 rounded-xl border border-violet-500 bg-violet-600/20 text-xs font-bold text-white transition';
+        btnPng.className = 'py-2 rounded-xl border border-studio-border bg-studio-card text-xs font-bold text-gray-300 transition';
+        qWrap.classList.remove('hidden');
+      }
+      renderExportPreview();
+    }
+
+    function downloadExportedImage() {
+      if (!lastExportBlob) {
+        renderExportPreview();
+        return;
+      }
+      const ext = state.exportFormat === 'jpeg' ? 'jpg' : 'png';
+      const safeName = (state.projectName || 'kolaseku').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      const a = document.createElement('a');
+      const url = URL.createObjectURL(lastExportBlob);
+      a.href = url;
+      a.download = `${safeName}-${Date.now()}.${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('Gambar berhasil diunduh!');
+    }
+
+    async function shareExportedImage() {
+      if (!lastExportBlob) return;
+      const ext = state.exportFormat === 'jpeg' ? 'jpg' : 'png';
+      const file = new File([lastExportBlob], `kolaseku.${ext}`, { type: lastExportBlob.type });
+      if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            title: state.projectName || 'KolaseKu Studio',
+            text: 'Dibuat dengan KolaseKu Studio',
+            files: [file]
+          });
+        } catch (err) {
+          if (err.name !== 'AbortError') showToast('Gagal membagikan gambar.');
+        }
+      } else {
+        downloadExportedImage();
+        showToast('Browser tidak mendukung Share langsung, gambar diunduh.');
+      }
+    }
+
+    // -------------------- 13. INDEXEDDB: AUTO-SAVE & KELOLA PROYEK --------------------
+    const DB_NAME = 'KolaseKuStudioDB';
+    const DB_VERSION = 1;
+    let dbPromise = null;
+    let autoSaveTimer = null;
+
+    function openDB() {
+      if (dbPromise) return dbPromise;
+      dbPromise = new Promise((resolve, reject) => {
+        if (!window.indexedDB) {
+          reject(new Error('IndexedDB tidak didukung'));
+          return;
+        }
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = (e) => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains('autosave')) {
+            db.createObjectStore('autosave', { keyPath: 'key' });
+          }
+          if (!db.objectStoreNames.contains('projects')) {
+            db.createObjectStore('projects', { keyPath: 'id' });
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      return dbPromise;
+    }
+
+    function setAutoSaveStatus(text, isBusy = false) {
+      const el = document.getElementById('autosave-status');
+      if (!el) return;
+      el.textContent = text;
+      el.className = isBusy
+        ? 'text-[10px] text-amber-300/90 truncate max-w-[120px] sm:max-w-[200px]'
+        : 'text-[10px] text-emerald-400/90 truncate max-w-[120px] sm:max-w-[200px]';
+    }
+
+    function generateThumbnailDataUrl() {
+      try {
+        const thumbCanvas = document.createElement('canvas');
+        const maxSide = 260;
+        const ratio = Math.min(maxSide / state.canvas.width, maxSide / state.canvas.height, 1);
+        thumbCanvas.width = Math.max(60, Math.round(state.canvas.width * ratio));
+        thumbCanvas.height = Math.max(60, Math.round(state.canvas.height * ratio));
+        const tCtx = thumbCanvas.getContext('2d');
+        tCtx.scale(ratio, ratio);
+        renderSceneToContext(tCtx, state.canvas.width, state.canvas.height, false);
+        return thumbCanvas.toDataURL('image/jpeg', 0.72);
+      } catch (err) {
+        return '';
+      }
+    }
+
+    function buildSerializableProjectData() {
+      const usedImgIds = new Set(state.layers.map(l => l.imgId));
+      const images = [];
+      for (const imgId of usedImgIds) {
+        const entry = imageRegistry.get(imgId);
+        if (entry && entry.blob) {
+          images.push({ imgId, blob: entry.blob, name: entry.name || 'Foto' });
+        }
+      }
+      return {
+        projectId: state.projectId,
+        projectName: state.projectName,
+        canvas: JSON.parse(JSON.stringify(state.canvas)),
+        layers: JSON.parse(JSON.stringify(state.layers)),
+        selectedId: state.selectedId,
+        images,
+        thumbnail: generateThumbnailDataUrl(),
+        photoCount: state.layers.length,
+        updatedAt: Date.now()
+      };
+    }
+
+    async function hydrateProjectData(record) {
+      // Bersihkan registry gambar lama
+      for (const entry of imageRegistry.values()) {
+        if (entry.url) URL.revokeObjectURL(entry.url);
+      }
+      imageRegistry.clear();
+
+      // Muat ulang semua blob gambar ke imageRegistry
+      let maxImgNum = 0;
+      const imgList = record.images || [];
+      for (const item of imgList) {
+        try {
+          const url = URL.createObjectURL(item.blob);
+          const img = await new Promise((resolve, reject) => {
+            const im = new Image();
+            im.onload = () => resolve(im);
+            im.onerror = reject;
+            im.src = url;
+          });
+          imageRegistry.set(item.imgId, { img, blob: item.blob, url, name: item.name || 'Foto' });
+          const num = parseInt(String(item.imgId).replace(/\D/g, ''), 10);
+          if (!isNaN(num) && num > maxImgNum) maxImgNum = num;
+        } catch (err) {
+          console.warn('Gagal memulihkan gambar:', item.imgId, err);
+        }
+      }
+      nextImgId = maxImgNum + 1;
+
+      let maxLayerNum = 0;
+      const restoredLayers = (record.layers || []).filter(l => imageRegistry.has(l.imgId));
+      restoredLayers.forEach(l => {
+        const num = parseInt(String(l.id).replace(/\D/g, ''), 10);
+        if (!isNaN(num) && num > maxLayerNum) maxLayerNum = num;
+        if (l.frameBg == null) l.frameBg = '#ffffff';
+      });
+      nextLayerId = maxLayerNum + 1;
+
+      state.canvas = Object.assign(createDefaultCanvasState(), record.canvas || {});
+      state.layers = restoredLayers;
+      state.selectedId = restoredLayers.some(l => l.id === record.selectedId) ? record.selectedId : null;
+      state.cropMode = false;
+      state.projectId = record.projectId || record.id || null;
+      state.projectName = record.projectName || record.name || 'Kolase Tanpa Judul';
+
+      history.stack = [];
+      history.index = -1;
+      saveHistory(false);
+      resizeCanvasView();
+      syncAllUI();
+      render();
+    }
+
+    function scheduleAutoSave() {
+      setAutoSaveStatus('Menyimpan...', true);
+      clearTimeout(autoSaveTimer);
+      autoSaveTimer = setTimeout(performAutoSave, 550);
+    }
+
+    async function performAutoSave() {
+      try {
+        const db = await openDB();
+        const data = buildSerializableProjectData();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('autosave', 'readwrite');
+          tx.objectStore('autosave').put({ key: 'current', ...data });
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+        const label = state.projectId ? `Tersimpan • ${state.projectName}` : 'Auto-save tersimpan';
+        setAutoSaveStatus(label, false);
+      } catch (err) {
+        console.warn('Auto-save gagal:', err);
+        setAutoSaveStatus('Auto-save nonaktif', false);
+      }
+    }
+
+    async function restoreAutoSaveOnBoot() {
+      try {
+        const db = await openDB();
+        const record = await new Promise((resolve, reject) => {
+          const tx = db.transaction('autosave', 'readonly');
+          const req = tx.objectStore('autosave').get('current');
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+        });
+
+        if (record && ((record.layers && record.layers.length > 0) || record.projectId)) {
+          await hydrateProjectData(record);
+          const label = state.projectId ? `Dipulihkan • ${state.projectName}` : 'Sesi terakhir dipulihkan';
+          setAutoSaveStatus(label, false);
+          if (state.layers.length > 0) {
+            showToast('Editan terakhir berhasil dipulihkan!');
+          }
+          return true;
+        }
+      } catch (err) {
+        console.warn('Gagal memulihkan auto-save:', err);
+      }
+      return false;
+    }
+
+    async function getAllSavedProjects() {
+      try {
+        const db = await openDB();
+        const list = await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readonly');
+          const req = tx.objectStore('projects').getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => reject(req.error);
+        });
+        return list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      } catch (err) {
+        return [];
+      }
+    }
+
+    async function openProjectsModal() {
+      state.cropMode = false;
+      syncCropModeUI();
+      document.getElementById('projects-modal').classList.remove('hidden');
+      document.getElementById('input-project-name').value = state.projectName || '';
+      syncProjectsHeaderUI();
+      await renderSavedProjectsList();
+    }
+
+    function closeProjectsModal() {
+      document.getElementById('projects-modal').classList.add('hidden');
+    }
+
+    function syncProjectsHeaderUI() {
+      const badge = document.getElementById('active-project-badge');
+      const saveLabel = document.getElementById('btn-save-project-label');
+      const saveAsNewBtn = document.getElementById('btn-save-as-new');
+
+      if (state.projectId) {
+        badge.textContent = 'Proyek Tersimpan';
+        badge.className = 'px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/30 text-[10px] font-semibold text-emerald-200';
+        saveLabel.textContent = 'Perbarui Proyek';
+        saveAsNewBtn.classList.remove('hidden');
+      } else {
+        badge.textContent = 'Draft Auto-Save';
+        badge.className = 'px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/30 text-[10px] font-semibold text-amber-200';
+        saveLabel.textContent = 'Simpan Proyek';
+        saveAsNewBtn.classList.add('hidden');
+      }
+    }
+
+    async function saveCurrentProject(asNewCopy = false) {
+      const inputName = document.getElementById('input-project-name').value.trim();
+      const name = inputName || `Kolase ${new Date().toLocaleDateString('id-ID')}`;
+      state.projectName = name;
+
+      const id = (!asNewCopy && state.projectId) ? state.projectId : ('proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6));
+      state.projectId = id;
+
+      try {
+        const db = await openDB();
+        const data = buildSerializableProjectData();
+        const projectRecord = {
+          id,
+          name,
+          projectId: id,
+          projectName: name,
+          ...data
+        };
+
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readwrite');
+          tx.objectStore('projects').put(projectRecord);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+
+        await performAutoSave();
+        syncProjectsHeaderUI();
+        await renderSavedProjectsList();
+        showToast(asNewCopy ? `Disimpan sebagai "${name}"` : `Proyek "${name}" tersimpan!`);
+      } catch (err) {
+        console.error(err);
+        showToast('Gagal menyimpan proyek (penyimpanan penuh?)');
+      }
+    }
+
+    async function confirmNewProject() {
+      const ok = await openAppDialog({
+        title: 'Mulai Proyek Baru?',
+        message: 'Kanvas saat ini akan dibersihkan ke kondisi kosong. Pastikan proyekmu sudah disimpan jika masih ingin mengeditnya nanti.',
+        confirmText: 'Ya, Reset Kanvas',
+        cancelText: 'Batal',
+        danger: true
+      });
+      if (!ok) return;
+
+      for (const entry of imageRegistry.values()) {
+        if (entry.url) URL.revokeObjectURL(entry.url);
+      }
+      imageRegistry.clear();
+      nextImgId = 1;
+      nextLayerId = 1;
+
+      state.canvas = createDefaultCanvasState();
+      state.layers = [];
+      state.selectedId = null;
+      state.cropMode = false;
+      state.projectId = null;
+      state.projectName = 'Kolase Tanpa Judul';
+
+      history.stack = [];
+      history.index = -1;
+      saveHistory(false);
+      await performAutoSave();
+      resizeCanvasView();
+      syncAllUI();
+      render();
+      closeProjectsModal();
+      showToast('Kanvas baru siap digunakan!');
+    }
+
+    async function loadSavedProject(id) {
+      try {
+        const db = await openDB();
+        const record = await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readonly');
+          const req = tx.objectStore('projects').get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+        });
+        if (!record) return;
+        await hydrateProjectData(record);
+        await performAutoSave();
+        closeProjectsModal();
+        showToast(`Proyek "${state.projectName}" dibuka!`);
+      } catch (err) {
+        console.error(err);
+        showToast('Gagal membuka proyek.');
+      }
+    }
+
+    async function renameSavedProject(id) {
+      try {
+        const db = await openDB();
+        const record = await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readonly');
+          const req = tx.objectStore('projects').get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+        });
+        if (!record) return;
+
+        const newName = await openAppDialog({
+          title: 'Ganti Nama Proyek',
+          message: 'Masukkan nama baru untuk proyek kolase ini:',
+          confirmText: 'Simpan Nama',
+          cancelText: 'Batal',
+          showInput: true,
+          inputValue: record.name || record.projectName || '',
+          inputPlaceholder: 'Nama proyek baru'
+        });
+        if (!newName) return;
+
+        record.name = newName;
+        record.projectName = newName;
+        record.updatedAt = Date.now();
+
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readwrite');
+          tx.objectStore('projects').put(record);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+
+        if (state.projectId === id) {
+          state.projectName = newName;
+          document.getElementById('input-project-name').value = newName;
+          await performAutoSave();
+        }
+        await renderSavedProjectsList();
+        showToast('Nama proyek diperbarui');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function duplicateSavedProject(id) {
+      try {
+        const db = await openDB();
+        const record = await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readonly');
+          const req = tx.objectStore('projects').get(id);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => reject(req.error);
+        });
+        if (!record) return;
+
+        const newId = 'proj_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        const newName = ((record.name || 'Kolase') + ' (Salinan)').slice(0, 45);
+        const copy = {
+          ...record,
+          id: newId,
+          projectId: newId,
+          name: newName,
+          projectName: newName,
+          updatedAt: Date.now()
+        };
+
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readwrite');
+          tx.objectStore('projects').put(copy);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+
+        await renderSavedProjectsList();
+        showToast('Proyek diduplikat');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function deleteSavedProject(id) {
+      const ok = await openAppDialog({
+        title: 'Hapus Proyek?',
+        message: 'Proyek ini akan dihapus permanen dari penyimpanan perangkat ini.',
+        confirmText: 'Hapus',
+        cancelText: 'Batal',
+        danger: true
+      });
+      if (!ok) return;
+
+      try {
+        const db = await openDB();
+        await new Promise((resolve, reject) => {
+          const tx = db.transaction('projects', 'readwrite');
+          tx.objectStore('projects').delete(id);
+          tx.oncomplete = resolve;
+          tx.onerror = () => reject(tx.error);
+        });
+
+        if (state.projectId === id) {
+          state.projectId = null;
+          syncProjectsHeaderUI();
+          await performAutoSave();
+        }
+        await renderSavedProjectsList();
+        showToast('Proyek dihapus');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
+    async function renderSavedProjectsList() {
+      const listEl = document.getElementById('projects-list');
+      const countBadge = document.getElementById('projects-count-badge');
+      const projects = await getAllSavedProjects();
+      countBadge.textContent = String(projects.length);
+
+      if (!projects.length) {
+        listEl.innerHTML = `<div class="col-span-full py-7 px-4 text-center rounded-2xl border border-dashed border-studio-border text-xs text-gray-400">Belum ada proyek tersimpan.<br/>Ketuk <strong>Simpan Proyek</strong> di atas untuk menyimpannya di perangkat.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = projects.map(p => {
+        const isCurrent = p.id === state.projectId;
+        const dateStr = p.updatedAt
+          ? new Date(p.updatedAt).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+          : '';
+        const dimStr = p.canvas ? `${p.canvas.width}×${p.canvas.height}` : '';
+        const thumbHtml = p.thumbnail
+          ? `<img src="${p.thumbnail}" alt="Thumbnail" class="w-full h-24 object-contain rounded-xl bg-studio-bg checkerboard" />`
+          : `<div class="w-full h-24 rounded-xl bg-studio-bg checkerboard flex items-center justify-center text-[10px] text-gray-500">Tanpa Pratinjau</div>`;
+
+        return `
+          <div class="p-2.5 rounded-2xl border ${isCurrent ? 'border-violet-500 bg-violet-950/25' : 'border-studio-border bg-studio-card/70'} space-y-2 flex flex-col">
+            <div class="relative">
+              ${thumbHtml}
+              ${isCurrent ? '<span class="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-violet-600 text-[9px] font-bold text-white shadow">Aktif</span>' : ''}
+            </div>
+            <div class="min-w-0 flex-1">
+              <p class="text-xs font-bold text-white truncate">${escapeHtml(p.name || p.projectName || 'Tanpa Judul')}</p>
+              <p class="text-[10px] text-gray-400 truncate">${p.photoCount || 0} foto • ${dimStr} • ${dateStr}</p>
+            </div>
+            <div class="flex items-center gap-1 pt-0.5">
+              <button onclick="loadSavedProject('${p.id}')" class="flex-1 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-[11px] font-bold text-white active:scale-95 transition">Buka</button>
+              <button onclick="renameSavedProject('${p.id}')" title="Ganti Nama" class="p-1.5 rounded-lg bg-studio-bg hover:bg-studio-border text-gray-300 active:scale-95 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+              <button onclick="duplicateSavedProject('${p.id}')" title="Duplikat" class="p-1.5 rounded-lg bg-studio-bg hover:bg-studio-border text-gray-300 active:scale-95 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button onclick="deleteSavedProject('${p.id}')" title="Hapus Proyek" class="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 active:scale-95 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // -------------------- 14. PROTEKSI TOMBOL BACK HP (HISTORY API) --------------------
+    let lastBackPressTime = 0;
+
+    function initBackButtonGuard() {
+      try {
+        window.history.replaceState({ kolaseGuard: 'root' }, '');
+        window.history.pushState({ kolaseGuard: 'active' }, '');
+
+        window.addEventListener('popstate', () => {
+          // 1. Tutup modal yang sedang terbuka terlebih dahulu
+          const dialogModal = document.getElementById('app-dialog-modal');
+          if (!dialogModal.classList.contains('hidden')) {
+            document.getElementById('app-dialog-cancel').click();
+            window.history.pushState({ kolaseGuard: 'active' }, '');
+            return;
+          }
+          const exportModal = document.getElementById('export-modal');
+          if (!exportModal.classList.contains('hidden')) {
+            closeExportModal();
+            window.history.pushState({ kolaseGuard: 'active' }, '');
+            return;
+          }
+          const projectsModal = document.getElementById('projects-modal');
+          if (!projectsModal.classList.contains('hidden')) {
+            closeProjectsModal();
+            window.history.pushState({ kolaseGuard: 'active' }, '');
+            return;
+          }
+          const pwaModal = document.getElementById('pwa-modal');
+          if (!pwaModal.classList.contains('hidden')) {
+            pwaModal.classList.add('hidden');
+            window.history.pushState({ kolaseGuard: 'active' }, '');
+            return;
+          }
+
+          // 2. Keluar dari Mode Geser Isi (Crop) jika sedang aktif
+          if (state.cropMode) {
+            exitCropMode();
+            window.history.pushState({ kolaseGuard: 'active' }, '');
+            return;
+          }
+
+          // 3. Konfirmasi tekan Back 2x untuk keluar agar tidak sengaja tertutup
+          const now = Date.now();
+          if (now - lastBackPressTime < 2200) {
+            return; // Izinkan browser keluar
+          }
+          lastBackPressTime = now;
+          showToast('Tekan Back sekali lagi untuk keluar');
+          window.history.pushState({ kolaseGuard: 'active' }, '');
+        });
+      } catch (err) {
+        console.warn('Back button guard tidak tersedia:', err);
+      }
+    }
+
+    // -------------------- 15. SINKRONISASI & BUILD UI PANEL --------------------
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      const activePanel = document.getElementById('panel-' + tabId);
+      if (activePanel) activePanel.classList.remove('hidden');
+
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        const isActive = btn.dataset.tab === tabId;
+        btn.className = isActive
+          ? 'tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-violet-500 text-violet-300 transition'
+          : 'tab-btn py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold border-b-2 border-transparent text-gray-400 hover:text-gray-200 transition';
+      });
+    }
+
+    function buildStaticUI() {
+      // Preset Rasio
+      document.getElementById('ratio-presets').innerHTML = RATIO_PRESETS.map(r => `
+        <button data-ratio="${r.id}" onclick="setCanvasSize(${r.w}, ${r.h})" class="ratio-btn py-2 px-1.5 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border text-center active:scale-95 transition">
+          <div class="text-xs font-bold text-white">${r.name}</div>
+          <div class="text-[9px] text-gray-400">${r.desc}</div>
+        </button>
+      `).join('');
+
+      // Swatch warna solid kanvas
+      document.getElementById('solid-bg-swatches').innerHTML = SOLID_SWATCHES.map(c => `
+        <button onclick="setCanvasBg('solid', '${c}')" style="background:${c}" title="${c}" class="w-7 h-7 rounded-lg border border-white/20 active:scale-90 transition"></button>
+      `).join('');
+
+      // Swatch gradien kanvas
+      document.getElementById('gradient-bg-swatches').innerHTML = GRADIENT_PRESETS.map(g => `
+        <button onclick="setCanvasBg('gradient', ['${g.colors[0]}', '${g.colors[1]}'])" style="background:linear-gradient(135deg, ${g.colors[0]}, ${g.colors[1]})" class="h-8 rounded-xl border border-white/20 active:scale-95 transition"></button>
+      `).join('');
+
+      // Swatch warna latar frame (untuk zoom out)
+      document.getElementById('frame-bg-swatches').innerHTML = FRAME_BG_SWATCHES.map(c => `
+        <button data-fbg="${c}" onclick="setSelectedFrameBg('${c}')" style="background:${c}" title="${c}" class="fbg-swatch w-7 h-7 rounded-lg border border-white/25 active:scale-90 transition"></button>
+      `).join('');
+
+      // Template Layout
+      document.getElementById('layout-grid').innerHTML = LAYOUT_TEMPLATES.map(tpl => `
+        <button data-layout="${tpl.id}" onclick="applyLayout('${tpl.id}', true)" class="layout-btn p-2 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border flex flex-col items-center gap-1.5 active:scale-95 transition">
+          ${renderLayoutIcon(tpl.id)}
+          <span class="text-[10px] font-semibold text-gray-200 leading-tight text-center">${tpl.name}</span>
+        </button>
+      `).join('');
+
+      // Template Bingkai
+      document.getElementById('frame-grid').innerHTML = FRAME_PRESETS.map(f => `
+        <button data-frame="${f.id}" onclick="setFramePreset('${f.id}')" class="frame-btn py-2.5 px-2 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border text-xs font-semibold text-gray-200 active:scale-95 transition">
+          ${f.name}
+        </button>
+      `).join('');
+
+      // Filter Warna
+      document.getElementById('filter-grid').innerHTML = FILTER_PRESETS.map(f => `
+        <button data-filter="${f.id}" onclick="setSelectedFilter('${f.id}')" class="filter-btn py-2 px-1.5 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border text-[10px] font-semibold text-gray-200 active:scale-95 transition">
+          ${f.name}
+        </button>
+      `).join('');
+    }
+
+    function renderLayoutIcon(id) {
+      const common = 'class="w-7 h-7 text-violet-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"';
+      switch (id) {
+        case 'custom-grid':
+          return `<svg ${common}><rect x="3" y="3" width="5" height="5" rx="1"/><rect x="9.5" y="3" width="5" height="5" rx="1"/><rect x="16" y="3" width="5" height="5" rx="1"/><rect x="3" y="9.5" width="5" height="5" rx="1"/><rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="16" y="9.5" width="5" height="5" rx="1"/><rect x="3" y="16" width="5" height="5" rx="1"/><rect x="9.5" y="16" width="5" height="5" rx="1"/><rect x="16" y="16" width="5" height="5" rx="1"/></svg>`;
+        case 'proportional-grid':
+          return `<svg ${common}><rect x="3" y="4" width="8" height="5" rx="1"/><rect x="14" y="3" width="6" height="8" rx="1"/><rect x="4" y="12" width="6" height="9" rx="1"/><rect x="13" y="14" width="8" height="6" rx="1"/></svg>`;
+        case '2-h':
+          return `<svg ${common}><rect x="3" y="3" width="8" height="18" rx="1.5"/><rect x="13" y="3" width="8" height="18" rx="1.5"/></svg>`;
+        case '2-v':
+          return `<svg ${common}><rect x="3" y="3" width="18" height="8" rx="1.5"/><rect x="3" y="13" width="18" height="8" rx="1.5"/></svg>`;
+        case '3-bento':
+          return `<svg ${common}><rect x="3" y="3" width="9" height="18" rx="1.5"/><rect x="14" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="13" width="7" height="8" rx="1.5"/></svg>`;
+        case '4-grid':
+          return `<svg ${common}><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="8" rx="1.5"/><rect x="3" y="13" width="8" height="8" rx="1.5"/><rect x="13" y="13" width="8" height="8" rx="1.5"/></svg>`;
+        case '6-grid':
+          return `<svg ${common}><rect x="3" y="4" width="5" height="7" rx="1"/><rect x="9.5" y="4" width="5" height="7" rx="1"/><rect x="16" y="4" width="5" height="7" rx="1"/><rect x="3" y="13" width="5" height="7" rx="1"/><rect x="9.5" y="13" width="5" height="7" rx="1"/><rect x="16" y="13" width="5" height="7" rx="1"/></svg>`;
+        case 'scrapbook':
+          return `<svg ${common}><rect x="4" y="5" width="9" height="9" rx="1.5" transform="rotate(-8 8.5 9.5)"/><rect x="11" y="10" width="9" height="9" rx="1.5" transform="rotate(7 15.5 14.5)"/></svg>`;
+        default:
+          return `<svg ${common}><rect x="3" y="3" width="18" height="18" rx="2.5" stroke-dasharray="3 2"/><circle cx="9" cy="10" r="2.2"/><rect x="12" y="12" width="6" height="5" rx="1"/></svg>`;
+      }
+    }
+
+    function setSelectedFilter(filterId) {
+      const layer = getSelectedLayer();
+      if (!layer) return;
+      layer.filter = filterId;
+      saveHistory();
+      syncEditUI();
+      render();
+    }
+
+    function syncCanvasUI() {
+      document.getElementById('input-canvas-w').value = state.canvas.width;
+      document.getElementById('input-canvas-h').value = state.canvas.height;
+      document.getElementById('input-canvas-bg-color').value = state.canvas.bgColor;
+
+      const transBtn = document.getElementById('btn-canvas-bg-trans');
+      transBtn.className = state.canvas.bgType === 'transparent'
+        ? 'px-2 py-0.5 rounded-lg border border-violet-500 bg-violet-600/25 text-[10px] font-bold text-white active:scale-95 transition'
+        : 'px-2 py-0.5 rounded-lg border border-studio-border bg-studio-card text-[10px] font-semibold text-gray-300 active:scale-95 transition';
+
+      document.querySelectorAll('.ratio-btn').forEach(btn => {
+        const preset = RATIO_PRESETS.find(r => r.id === btn.dataset.ratio);
+        const isMatch = preset && preset.w === state.canvas.width && preset.h === state.canvas.height;
+        btn.className = isMatch
+          ? 'ratio-btn py-2 px-1.5 rounded-xl border border-violet-500 bg-violet-600/20 text-center active:scale-95 transition'
+          : 'ratio-btn py-2 px-1.5 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border text-center active:scale-95 transition';
+      });
+    }
+
+    function syncLayoutUI() {
+      const active = state.canvas.activeLayout;
+      document.querySelectorAll('.layout-btn').forEach(btn => {
+        const isMatch = btn.dataset.layout === active;
+        btn.className = isMatch
+          ? 'layout-btn p-2 rounded-xl border border-violet-500 bg-violet-600/20 flex flex-col items-center gap-1.5 active:scale-95 transition'
+          : 'layout-btn p-2 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border flex flex-col items-center gap-1.5 active:scale-95 transition';
+      });
+
+      const customBox = document.getElementById('custom-grid-controls');
+      const isCustom = active === 'custom-grid' || active === 'proportional-grid';
+      customBox.classList.toggle('hidden', !isCustom);
+      if (isCustom) {
+        document.getElementById('custom-grid-title').textContent =
+          active === 'custom-grid' ? 'Atur Grid Simetris (Kolom × Baris)' : 'Atur Rapi Proporsi (Kolom × Baris)';
+        document.getElementById('custom-grid-desc').textContent =
+          active === 'custom-grid'
+            ? 'Semua slot foto dibuat seragam, rapi & simetris'
+            : 'Posisi foto dirapikan ke grid tanpa mengubah rasio asli foto';
+        document.getElementById('input-grid-cols').value = state.canvas.gridCols;
+        document.getElementById('input-grid-rows').value = state.canvas.gridRows;
+      }
+
+      document.getElementById('slider-gap').value = state.canvas.gap;
+      document.getElementById('val-gap').textContent = `${state.canvas.gap} px`;
+      document.getElementById('slider-padding').value = state.canvas.padding;
+      document.getElementById('val-padding').textContent = `${state.canvas.padding} px`;
+      document.getElementById('slider-global-radius').value = state.canvas.globalRadius;
+      document.getElementById('val-global-radius').textContent = `${state.canvas.globalRadius} px`;
+    }
+
+    function syncFrameUI() {
+      document.querySelectorAll('.frame-btn').forEach(btn => {
+        const isMatch = btn.dataset.frame === state.canvas.frameId;
+        btn.className = isMatch
+          ? 'frame-btn py-2.5 px-2 rounded-xl border border-violet-500 bg-violet-600/20 text-xs font-bold text-white active:scale-95 transition'
+          : 'frame-btn py-2.5 px-2 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border text-xs font-semibold text-gray-200 active:scale-95 transition';
+      });
+      document.getElementById('input-frame-accent').value = state.canvas.frameAccent || '#ffffff';
+      document.getElementById('input-frame-caption').value = state.canvas.frameCaption || '';
+    }
+
+    function syncCropModeUI() {
+      const sel = getSelectedLayer();
+      const fab = document.getElementById('floating-action-bar');
+      const banner = document.getElementById('crop-mode-banner');
+      const fabCropLabel = document.getElementById('fab-crop-label');
+      const panelCropBtn = document.getElementById('btn-toggle-crop-mode');
+
+      fab.classList.toggle('hidden', !sel);
+      banner.classList.toggle('hidden', !(sel && state.cropMode));
+
+      if (state.cropMode) {
+        fabCropLabel.textContent = 'Selesai Crop';
+        if (panelCropBtn) {
+          panelCropBtn.textContent = 'Selesai';
+          panelCropBtn.className = 'px-2.5 py-1.5 rounded-xl bg-cyan-400 text-slate-950 text-[11px] font-bold active:scale-95 transition shrink-0';
+        }
+      } else {
+        fabCropLabel.textContent = 'Geser Isi';
+        if (panelCropBtn) {
+          panelCropBtn.textContent = 'Geser Isi';
+          panelCropBtn.className = 'px-2.5 py-1.5 rounded-xl bg-cyan-500/20 border border-cyan-400/40 text-cyan-200 text-[11px] font-bold active:scale-95 transition shrink-0';
+        }
+      }
+    }
+
+    function syncEditUI() {
+      const sel = getSelectedLayer();
+      document.getElementById('edit-no-selection').classList.toggle('hidden', !!sel);
+      document.getElementById('edit-controls').classList.toggle('hidden', !sel);
+      syncCropModeUI();
+      if (!sel) return;
+
+      const zoomPct = Math.round((sel.imgZoom != null ? sel.imgZoom : 1) * 100);
+      document.getElementById('slider-img-zoom').value = zoomPct;
+      document.getElementById('val-img-zoom').textContent = `${zoomPct}%`;
+
+      const frameBg = sel.frameBg != null ? sel.frameBg : '#ffffff';
+      const transBtn = document.getElementById('btn-frame-bg-transparent');
+      transBtn.className = frameBg === 'transparent'
+        ? 'h-7 px-2 rounded-lg border border-cyan-400 bg-cyan-500/25 text-[10px] font-bold text-white flex items-center gap-1 active:scale-95 transition'
+        : 'h-7 px-2 rounded-lg border border-studio-border bg-studio-card text-[10px] font-semibold text-gray-200 flex items-center gap-1 active:scale-95 transition';
+
+      if (frameBg !== 'transparent') {
+        document.getElementById('input-frame-bg-color').value = frameBg;
+      }
+
+      document.querySelectorAll('.fbg-swatch').forEach(sw => {
+        const isMatch = sw.dataset.fbg === frameBg;
+        sw.className = isMatch
+          ? 'fbg-swatch w-7 h-7 rounded-lg border-2 border-cyan-400 scale-105 active:scale-90 transition'
+          : 'fbg-swatch w-7 h-7 rounded-lg border border-white/25 active:scale-90 transition';
+      });
+
+      const scalePct = Math.round(sel.scale * 100);
+      document.getElementById('slider-scale').value = Math.min(300, Math.max(15, scalePct));
+      document.getElementById('val-scale').textContent = `${scalePct}%`;
+
+      const rot = Math.round(sel.rotation || 0);
+      document.getElementById('slider-rotation').value = rot;
+      document.getElementById('val-rotation').textContent = `${rot}°`;
+
+      const op = Math.round((sel.opacity != null ? sel.opacity : 1) * 100);
+      document.getElementById('slider-opacity').value = op;
+      document.getElementById('val-opacity').textContent = `${op}%`;
+
+      const rad = Math.round(sel.radius || 0);
+      document.getElementById('slider-radius').value = rad;
+      document.getElementById('val-radius').textContent = `${rad} px`;
+
+      const sh = Math.round(sel.shadow || 0);
+      document.getElementById('slider-shadow').value = sh;
+      document.getElementById('val-shadow').textContent = `${sh}`;
+
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        const isMatch = btn.dataset.filter === (sel.filter || 'none');
+        btn.className = isMatch
+          ? 'filter-btn py-2 px-1.5 rounded-xl border border-violet-500 bg-violet-600/20 text-[10px] font-bold text-white active:scale-95 transition'
+          : 'filter-btn py-2 px-1.5 rounded-xl border border-studio-border bg-studio-card hover:bg-studio-border text-[10px] font-semibold text-gray-200 active:scale-95 transition';
+      });
+    }
+
+    function syncLayersUI() {
+      const listEl = document.getElementById('layers-list');
+      if (!state.layers.length) {
+        listEl.innerHTML = `<div class="py-8 text-center text-xs text-gray-400">Belum ada layer foto. Ketuk <strong>+ Tambah Foto</strong> untuk mulai.</div>`;
+        return;
+      }
+
+      // Tampilkan urutan terbalik (paling atas = paling depan)
+      const reversed = [...state.layers].reverse();
+      listEl.innerHTML = reversed.map((layer, revIdx) => {
+        const realIdx = state.layers.length - 1 - revIdx;
+        const entry = imageRegistry.get(layer.imgId);
+        const thumbUrl = entry ? entry.url : '';
+        const isSel = layer.id === state.selectedId;
+
+        return `
+          <div onclick="selectLayer('${layer.id}')" class="p-2 rounded-2xl border ${isSel ? 'border-violet-500 bg-violet-950/30' : 'border-studio-border bg-studio-card/70'} flex items-center gap-2.5 cursor-pointer transition">
+            <img src="${thumbUrl}" alt="" class="w-10 h-10 rounded-xl object-cover bg-studio-bg border border-white/10 shrink-0" />
+            <div class="flex-1 min-w-0">
+              <p class="text-xs font-semibold text-white truncate">${escapeHtml(layer.name)}</p>
+              <p class="text-[10px] text-gray-400">Layer #${realIdx + 1} ${layer.locked ? '• Terkunci' : ''}</p>
+            </div>
+            <div class="flex items-center gap-1 shrink-0" onclick="event.stopPropagation()">
+              <button onclick="moveLayerOrder('${layer.id}', 1)" ${realIdx === state.layers.length - 1 ? 'disabled' : ''} title="Naikkan ke Depan" class="p-1.5 rounded-lg bg-studio-bg hover:bg-studio-border text-gray-300 disabled:opacity-30 active:scale-90 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="18 15 12 9 6 15"/></svg>
+              </button>
+              <button onclick="moveLayerOrder('${layer.id}', -1)" ${realIdx === 0 ? 'disabled' : ''} title="Turunkan ke Belakang" class="p-1.5 rounded-lg bg-studio-bg hover:bg-studio-border text-gray-300 disabled:opacity-30 active:scale-90 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+              <button onclick="triggerReplaceLayerPhoto('${layer.id}')" title="Tukar Foto" class="p-1.5 rounded-lg bg-studio-bg hover:bg-studio-border text-violet-300 active:scale-90 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+              </button>
+              <button onclick="toggleLayerLock('${layer.id}')" title="${layer.locked ? 'Buka Kunci' : 'Kunci Layer'}" class="p-1.5 rounded-lg ${layer.locked ? 'bg-amber-500/20 text-amber-300' : 'bg-studio-bg text-gray-300'} active:scale-90 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="${layer.locked ? 'M7 11V7a5 5 0 0 1 10 0v4' : 'M7 11V7a5 5 0 0 1 9.9-1'}"/></svg>
+              </button>
+              <button onclick="toggleLayerVisibility('${layer.id}')" title="${layer.visible ? 'Sembunyikan' : 'Tampilkan'}" class="p-1.5 rounded-lg ${!layer.visible ? 'bg-slate-700 text-gray-400' : 'bg-studio-bg text-gray-300'} active:scale-90 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>${!layer.visible ? '<line x1="2" y1="2" x2="22" y2="22"/>' : ''}</svg>
+              </button>
+              <button onclick="deleteLayerById('${layer.id}')" title="Hapus Layer" class="p-1.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 active:scale-90 transition">
+                <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              </button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function syncAllUI() {
+      syncCanvasUI();
+      syncLayoutUI();
+      syncFrameUI();
+      syncEditUI();
+      syncLayersUI();
+    }
+
+    // -------------------- 16. EVENT LISTENER INPUT & SLIDER --------------------
+    function bindControlEvents() {
+      // Warna background kanvas
+      document.getElementById('input-canvas-bg-color').addEventListener('input', (e) => {
+        state.canvas.bgType = 'solid';
+        state.canvas.bgColor = e.target.value;
+        syncCanvasUI();
+        render();
+      });
+      document.getElementById('input-canvas-bg-color').addEventListener('change', () => saveHistory());
+
+      // Input angka custom grid
+      document.getElementById('input-grid-cols').addEventListener('change', (e) => {
+        state.canvas.gridCols = Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 2));
+        applyLayout(state.canvas.activeLayout, true);
+      });
+      document.getElementById('input-grid-rows').addEventListener('change', (e) => {
+        state.canvas.gridRows = Math.max(1, Math.min(10, parseInt(e.target.value, 10) || 2));
+        applyLayout(state.canvas.activeLayout, true);
+      });
+
+      // Slider Gap, Padding, Global Radius
+      document.getElementById('slider-gap').addEventListener('input', (e) => {
+        state.canvas.gap = parseInt(e.target.value, 10);
+        document.getElementById('val-gap').textContent = `${state.canvas.gap} px`;
+        if (state.canvas.activeLayout !== 'freeform') applyLayout(state.canvas.activeLayout, false);
+      });
+      document.getElementById('slider-gap').addEventListener('change', () => saveHistory());
+
+      document.getElementById('slider-padding').addEventListener('input', (e) => {
+        state.canvas.padding = parseInt(e.target.value, 10);
+        document.getElementById('val-padding').textContent = `${state.canvas.padding} px`;
+        if (state.canvas.activeLayout !== 'freeform') applyLayout(state.canvas.activeLayout, false);
+      });
+      document.getElementById('slider-padding').addEventListener('change', () => saveHistory());
+
+      document.getElementById('slider-global-radius').addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        state.canvas.globalRadius = val;
+        document.getElementById('val-global-radius').textContent = `${val} px`;
+        state.layers.forEach(l => { l.radius = val; });
+        syncEditUI();
+        render();
+      });
+      document.getElementById('slider-global-radius').addEventListener('change', () => saveHistory());
+
+      // Warna & Caption Bingkai
+      document.getElementById('input-frame-accent').addEventListener('input', (e) => {
+        state.canvas.frameAccent = e.target.value;
+        render();
+      });
+      document.getElementById('input-frame-accent').addEventListener('change', () => saveHistory());
+
+      document.getElementById('input-frame-caption').addEventListener('input', (e) => {
+        state.canvas.frameCaption = e.target.value;
+        render();
+        scheduleAutoSave();
+      });
+
+      // Slider Zoom Isi Foto (Mendukung Zoom Out 20% - 350%)
+      document.getElementById('slider-img-zoom').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer) return;
+        const val = parseInt(e.target.value, 10);
+        layer.imgZoom = val / 100;
+        clampCropOffset(layer);
+        document.getElementById('val-img-zoom').textContent = `${val}%`;
+        render();
+      });
+      document.getElementById('slider-img-zoom').addEventListener('change', () => saveHistory());
+
+      // Color Picker Latar Belakang Frame
+      document.getElementById('input-frame-bg-color').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer) return;
+        layer.frameBg = e.target.value;
+        syncEditUI();
+        render();
+      });
+      document.getElementById('input-frame-bg-color').addEventListener('change', () => saveHistory());
+
+      // Slider Transformasi Layer
+      document.getElementById('slider-scale').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer || layer.locked) return;
+        const val = parseInt(e.target.value, 10);
+        layer.scale = val / 100;
+        document.getElementById('val-scale').textContent = `${val}%`;
+        render();
+      });
+      document.getElementById('slider-scale').addEventListener('change', () => saveHistory());
+
+      document.getElementById('slider-rotation').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer || layer.locked) return;
+        const val = parseInt(e.target.value, 10);
+        layer.rotation = val;
+        document.getElementById('val-rotation').textContent = `${val}°`;
+        render();
+      });
+      document.getElementById('slider-rotation').addEventListener('change', () => saveHistory());
+
+      document.getElementById('slider-opacity').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer) return;
+        const val = parseInt(e.target.value, 10);
+        layer.opacity = val / 100;
+        document.getElementById('val-opacity').textContent = `${val}%`;
+        render();
+      });
+      document.getElementById('slider-opacity').addEventListener('change', () => saveHistory());
+
+      document.getElementById('slider-radius').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer) return;
+        const val = parseInt(e.target.value, 10);
+        layer.radius = val;
+        document.getElementById('val-radius').textContent = `${val} px`;
+        render();
+      });
+      document.getElementById('slider-radius').addEventListener('change', () => saveHistory());
+
+      document.getElementById('slider-shadow').addEventListener('input', (e) => {
+        const layer = getSelectedLayer();
+        if (!layer) return;
+        const val = parseInt(e.target.value, 10);
+        layer.shadow = val;
+        document.getElementById('val-shadow').textContent = `${val}`;
+        render();
+      });
+      document.getElementById('slider-shadow').addEventListener('change', () => saveHistory());
+
+      // Kualitas JPG ekspor
+      document.getElementById('slider-export-quality').addEventListener('input', (e) => {
+        const val = parseInt(e.target.value, 10);
+        state.exportQuality = val / 100;
+        document.getElementById('val-export-quality').textContent = `${val}%`;
+        renderExportPreview();
+      });
+
+      // Shortcut keyboard desktop (Delete, Undo/Redo, Escape)
+      window.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) redo();
+          else undo();
+        } else if (e.key === 'Escape' && state.cropMode) {
+          exitCropMode();
+        } else if ((e.key === 'Delete' || e.key === 'Backspace') && state.selectedId && !state.cropMode) {
+          e.preventDefault();
+          deleteSelectedLayer();
+        }
+      });
+
+      window.addEventListener('resize', resizeCanvasView);
+    }
+
+    // -------------------- 17. INISIALISASI APLIKASI --------------------
+    window.addEventListener('DOMContentLoaded', async () => {
+      buildStaticUI();
+      bindControlEvents();
+      initBackButtonGuard();
+      resizeCanvasView();
+      syncAllUI();
+
+      const restored = await restoreAutoSaveOnBoot();
+      if (!restored) {
+        saveHistory(false);
+        render();
+      }
+    });
+  </script>
+</body>
+</html>
