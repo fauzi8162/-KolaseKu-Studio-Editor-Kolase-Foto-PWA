@@ -1,4 +1,5 @@
 # 🎨 KolaseKu Studio — Editor Kolase Foto PWA
+Demo : https://fauzi8162.github.io/KolaseKu-Studio-Editor-Kolase-Foto-PWA/
 
 ![HTML5](https://img.shields.io/badge/HTML5-Canvas-E34F26?style=for-the-badge&logo=html5&logoColor=white)
 ![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
@@ -38,6 +39,10 @@ Seluruh pemrosesan gambar berjalan **100% di sisi klien (lokal di browser)** tan
 * **Preset Rasio Populer:** `1:1` (Feed), `4:5` (Portrait), `9:16` (Story), `16:9` (Wide), `3:4`, `4:3`, `2:3`, serta input ukuran kustom hingga `4000 × 4000 px`.
 * **Installable PWA:** Dilengkapi *Web App Manifest* dan ikon SVG dinamis sehingga dapat diinstal langsung ke layar utama Android maupun iOS (Safari) layaknya aplikasi native.
 * **Ekspor & Bagikan:** Unduh hasil kolase dalam format **PNG** (mendukung latar transparan) atau **JPG** (dengan pengaturan kualitas), serta dukungan *Web Share API* untuk langsung membagikan ke media sosial.
+
+ ### 📱 📁 Project Manager & Autosave
+* **Auto-Save Lokal & Kelola Proyek:** Pulihkan otomatis editan terakhir saat dibuka ulang, simpan proyek baru/perbarui, ganti nama, duplikat, hapus proyek, dan tombol Proyek Baru untuk reset kanvas.
+ 
 
 ---
 
